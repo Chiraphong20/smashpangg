@@ -1,28 +1,75 @@
 import React from 'react';
 import { History, LayoutDashboard, Trophy, Clock } from 'lucide-react';
 import { cn } from '../lib/utils';
-import { GameRecord, RANK_COLORS } from '../types';
+import { GameRecord, RANK_COLORS, SessionRecord } from '../types';
 import { format } from 'date-fns';
 
 interface Props {
   gameHistory: GameRecord[];
+  sessionHistory: SessionRecord[];
+  onViewSession: (session: SessionRecord) => void;
+  onActiveTab: (tab: 'dashboard' | 'logs' | 'members' | 'courts' | 'finance') => void;
 }
 
-export function LogsTab({ gameHistory }: Props) {
+export function LogsTab({ gameHistory, sessionHistory, onViewSession, onActiveTab }: Props) {
   // Sort by time descending
   const logs = [...gameHistory].sort((a, b) => b.playedAt - a.playedAt);
 
   return (
     <div className="space-y-6 max-w-4xl mx-auto">
-      <div className="flex items-center justify-between mb-2">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-2">
         <h2 className="font-headline font-black text-3xl tracking-tighter flex items-center gap-3">
           <History size={32} className="text-primary" />
           บันทึกการตี
         </h2>
-        <div className="bg-white px-4 py-2 rounded-2xl shadow-sm border border-on-surface/5 flex items-center gap-2">
-          <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
-          <span className="text-xs font-black text-on-surface/60 uppercase tracking-widest">Live Updates</span>
+        <div className="flex items-center gap-2">
+          <div className="bg-white px-4 py-2 rounded-2xl shadow-sm border border-on-surface/5 flex items-center gap-2">
+            <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
+            <span className="text-xs font-black text-on-surface/60 uppercase tracking-widest">Live Updates</span>
+          </div>
         </div>
+      </div>
+
+      {/* Session History Section */}
+      {sessionHistory.length > 0 && (
+        <div className="space-y-4">
+          <div className="flex items-center gap-2 px-1">
+            <h3 className="text-xs font-black uppercase text-on-surface/40 tracking-widest">เซสชันที่ผ่านมา</h3>
+            <div className="h-px bg-on-surface/5 flex-1" />
+          </div>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {sessionHistory.map(session => (
+              <button 
+                key={session.id}
+                onClick={() => {
+                  onViewSession(session);
+                  onActiveTab('dashboard');
+                }}
+                className="bg-white hover:bg-primary/5 rounded-[2rem] p-5 shadow-sm border border-on-surface/5 flex items-center justify-between group transition-all text-left"
+              >
+                <div className="flex items-center gap-4">
+                  <div className="w-10 h-10 bg-primary/5 rounded-2xl flex items-center justify-center text-primary group-hover:scale-110 transition-transform">
+                    <Clock size={20} />
+                  </div>
+                  <div>
+                    <p className="font-black text-sm text-on-surface">เซสชัน {format(session.date, 'do MMM yyyy')}</p>
+                    <p className="text-[10px] font-bold text-on-surface/40">
+                      {session.gameHistory.length} เกม · {session.membersSnapshot.length} ผู้เล่น
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 text-primary font-black text-[10px] uppercase tracking-widest opacity-0 group-hover:opacity-100 transition-opacity">
+                  ดูรายละเอียด <LayoutDashboard size={14} />
+                </div>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="flex items-center gap-2 px-1">
+        <h3 className="text-xs font-black uppercase text-secondary/60 tracking-widest">รายการของวันนี้</h3>
+        <div className="h-px bg-on-surface/5 flex-1" />
       </div>
 
       <div className="space-y-4">

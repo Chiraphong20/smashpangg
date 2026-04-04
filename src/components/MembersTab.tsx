@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { UserPlus, Trash2, ChevronRight } from 'lucide-react';
+import { UserPlus, Trash2, ChevronRight, FileText } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { Member, Rank, RANKS, RANK_COLORS, RANK_LEVEL_LABELS } from '../types';
@@ -9,12 +9,13 @@ interface Props {
   searchQuery: string;
   onRemove: (id: string) => void;
   onAddMember: () => void;
+  onImportLine: () => void;
   onUpdateRank: (memberId: string, rank: Rank) => void;
 }
 
 type Filter = 'all' | 'waiting' | 'playing' | 'resting';
 
-export function MembersTab({ members, searchQuery, onRemove, onAddMember, onUpdateRank }: Props) {
+export function MembersTab({ members, searchQuery, onRemove, onAddMember, onImportLine, onUpdateRank }: Props) {
   const [filter, setFilter] = useState<Filter>('all');
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
 
@@ -113,6 +114,13 @@ export function MembersTab({ members, searchQuery, onRemove, onAddMember, onUpda
           className="bg-white/50 rounded-3xl p-5 border-2 border-dashed border-on-surface/15 hover:border-primary/40 hover:bg-white/80 transition-all flex flex-col items-center justify-center gap-3 min-h-[144px] text-on-surface/40 hover:text-primary">
           <UserPlus size={28} />
           <span className="font-black text-xs uppercase tracking-widest">เพิ่มผู้เล่น</span>
+        </motion.button>
+
+        {/* Import from LINE button */}
+        <motion.button layout onClick={onImportLine}
+          className="bg-secondary/5 rounded-3xl p-5 border-2 border-dashed border-secondary/20 hover:border-secondary/40 hover:bg-secondary/10 transition-all flex flex-col items-center justify-center gap-3 min-h-[144px] text-secondary/60">
+          <FileText size={28} />
+          <span className="font-black text-xs uppercase tracking-widest">นำเข้าจากไลน์</span>
         </motion.button>
       </div>
 

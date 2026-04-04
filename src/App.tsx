@@ -1,8 +1,8 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Users, LayoutDashboard, Trophy, Banknote, UserPlus, Search, ShoppingCart, History } from 'lucide-react';
+import { Users, LayoutDashboard, Trophy, Banknote, UserPlus, Search, ShoppingCart, History, FileText } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from './lib/utils';
-import { Member, Court, Rank, RANKS, RANK_COLORS, Snack, PaymentRecord, GameRecord, DEFAULT_SNACKS } from './types';
+import { Member, Court, Rank, RANKS, RANK_COLORS, Snack, PaymentRecord, GameRecord, DEFAULT_SNACKS, SessionRecord } from './types';
 import { format } from 'date-fns';
 import confetti from 'canvas-confetti';
 
@@ -24,6 +24,7 @@ const mkMember = (id: string, name: string, rank: Rank, gamesPlayed: number, off
   checkInTime: Date.now() - offset,
   status: 'waiting',
   balance: 0, courtBalance: 0, shuttleBalance: 0, shuttleCount: 0, snackBalance: 0,
+  snackHistory: [],
   paidCourtFee: false,
 });
 
@@ -47,6 +48,11 @@ export default function App() {
   const [shuttlePrice, setShuttlePrice] = useState(25);
   const [minRankFilter, setMinRankFilter] = useState<Rank>('P+');
   const [maxRankFilter, setMaxRankFilter] = useState<Rank>('VIP1');
+  const [sessionHistory, setSessionHistory] = useState<SessionRecord[]>([]);
+  const [viewingSession, setViewingSession] = useState<SessionRecord | null>(null);
+  const [googleSheetUrl, setGoogleSheetUrl] = useState('https://script.google.com/macros/s/AKfycbwU2qbY_UZy3AQgruvdWkfl8dXrvEfrJQmFWpTiBW5l5NgQBaqfFmiizpJbpqOXjk8/exec');
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [rankMemory, setRankMemory] = useState<Record<string, Rank>>({});
 
   // Load from localStorage
   useEffect(() => {
@@ -54,17 +60,30 @@ export default function App() {
     const crts = localStorage.getItem('smashit_courts');
     const hist = localStorage.getItem('smashit_history');
     const pays = localStorage.getItem('smashit_payments');
+    const sessions = localStorage.getItem('smashit_sessions');
     const setting_fee = localStorage.getItem('smashit_fee');
     const setting_shuttle = localStorage.getItem('smashit_shuttle');
 
-    if (mems) setMembers(JSON.parse(mems));
-    else setMembers(INITIAL_MEMBERS);
+    if (mems) {
+      const parsedMembers = JSON.parse(mems);
+      const migratedMembers = parsedMembers.map((m: any) => ({
+        ...m,
+        snackHistory: m.snackHistory || []
+      }));
+      setMembers(migratedMembers);
+    } else {
+      setMembers(INITIAL_MEMBERS);
+    }
 
     if (crts) setCourts(JSON.parse(crts));
     else setCourts(INITIAL_COURTS);
 
-    if (hist) setGameHistory(JSON.parse(hist));
     if (pays) setPaymentHistory(JSON.parse(pays));
+    if (sessions) setSessionHistory(JSON.parse(sessions));
+    const gs_url = localStorage.getItem('smashit_gs_url');
+    const r_mem = localStorage.getItem('smashit_rank_memory');
+    if (gs_url) setGoogleSheetUrl(gs_url);
+    if (r_mem) setRankMemory(JSON.parse(r_mem));
     if (setting_fee) setCourtFeePerPerson(Number(setting_fee));
     if (setting_shuttle) setShuttlePrice(Number(setting_shuttle));
   }, []);
@@ -75,12 +94,19 @@ export default function App() {
     if (courts.length > 0) localStorage.setItem('smashit_courts', JSON.stringify(courts));
     localStorage.setItem('smashit_history', JSON.stringify(gameHistory));
     localStorage.setItem('smashit_payments', JSON.stringify(paymentHistory));
+    localStorage.setItem('smashit_sessions', JSON.stringify(sessionHistory));
     localStorage.setItem('smashit_fee', courtFeePerPerson.toString());
     localStorage.setItem('smashit_shuttle', shuttlePrice.toString());
-  }, [members, courts, gameHistory, paymentHistory, courtFeePerPerson, shuttlePrice]);
+    localStorage.setItem('smashit_gs_url', googleSheetUrl);
+    localStorage.setItem('smashit_rank_memory', JSON.stringify(rankMemory));
+  }, [members, courts, gameHistory, paymentHistory, sessionHistory, courtFeePerPerson, shuttlePrice, googleSheetUrl, rankMemory]);
 
-  const resetDay = () => {
+  const resetDay = async () => {
     if (!confirm('คุณแน่ใจหรือไม่ว่าต้องการเริ่มวันใหม่? (ล้างประวัติการตีและรีเซ็ตคอร์ด)')) return;
+    saveSession();
+    if (googleSheetUrl) {
+      await syncToGoogleSheets();
+    }
     setGameHistory([]);
     setPaymentHistory([]);
     setCourts(INITIAL_COURTS);
@@ -92,10 +118,143 @@ export default function App() {
       shuttleBalance: 0,
       shuttleCount: 0,
       snackBalance: 0,
+      snackHistory: [],
       paidCourtFee: false,
       status: 'waiting',
       checkInTime: Date.now()
     })));
+  };
+
+  const syncToGoogleSheets = async () => {
+    if (!googleSheetUrl) return;
+    setIsSyncing(true);
+    try {
+      const payload = {
+        timestamp: new Date().toISOString(),
+        members: members.map(m => ({
+          name: m.name,
+          rank: m.rank,
+          games: m.gamesPlayed,
+          court_fee: m.courtBalance,
+          shuttle_fee: m.shuttleBalance,
+          snack_fee: m.snackBalance,
+          total: m.balance
+        })),
+        games: gameHistory.map(g => ({
+          time: format(g.playedAt, 'HH:mm'),
+          court: g.courtName,
+          players: g.players.map(p => p.name).join(', '),
+          shuttles: g.shuttlesUsed,
+          cost_per_person: g.shuttleCostPerPerson
+        })),
+        payments: paymentHistory.map(p => ({
+          time: format(p.timestamp, 'HH:mm'),
+          member: p.memberName,
+          amount: p.amount,
+          method: p.method
+        }))
+      };
+
+      await fetch(googleSheetUrl, {
+        method: 'POST',
+        mode: 'no-cors',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      // Note: no-cors means we can't read the response, but it usually succeeds
+    } catch (err) {
+      console.error('GS Sync Error:', err);
+      alert('ไม่สามารถส่งข้อมูลไปยัง Google Sheets ได้ โปรดตรวจสอบ Script URL');
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  const pushMasterData = async () => {
+    if (!googleSheetUrl) return;
+    setIsSyncing(true);
+    try {
+      const payload = {
+        action: 'push_master',
+        rankMemory,
+        settings: { courtFeePerPerson, shuttlePrice, googleSheetUrl }
+      };
+      await fetch(googleSheetUrl, {
+        method: 'POST',
+        mode: 'no-cors',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      });
+      alert('สำรองข้อมูลสมาชิกและตั้งค่าขึ้น Cloud เรียบร้อยแล้ว!');
+    } catch (err) {
+      alert('ไม่สามารถสำรองข้อมูลได้');
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  const pullMasterData = async () => {
+    if (!googleSheetUrl) return;
+    setIsSyncing(true);
+    try {
+      // For Apps Script, we often need to use JSONP or specific URL params for GET
+      // to avoid CORS preflight issues during development if not properly configured.
+      const res = await fetch(`${googleSheetUrl}?action=pull_master`);
+      const data = await res.json();
+      if (data.rankMemory) setRankMemory(data.rankMemory);
+      if (data.settings) {
+        if (data.settings.courtFeePerPerson) setCourtFeePerPerson(data.settings.courtFeePerPerson);
+        if (data.settings.shuttlePrice) setShuttlePrice(data.settings.shuttlePrice);
+      }
+      alert('โหลดข้อมูลจาก Cloud เรียบร้อย!');
+    } catch (err) {
+      console.error(err);
+      alert('ไม่สามารถโหลดข้อมูลจาก Cloud ได้ (ตรวจสอบว่าคุณได้อัปเดตสคริปต์ใน Google Sheets หรือยัง)');
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+  const seedMockHistory = () => {
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    yesterday.setHours(19, 0, 0, 0);
+
+    const mockMembers: Member[] = [
+      { id: 'mock-1', name: 'คุณสมชาย (ทดสอบ)', rank: 'S1', gamesPlayed: 4, checkInTime: yesterday.getTime(), status: 'resting', balance: 0, courtBalance: 160, shuttleBalance: 75, snackBalance: 20, shuttleCount: 3, snackHistory: [{ id: 's1', name: 'น้ำเปล่า', price: 20, time: yesterday.getTime() + 100000 }], paidCourtFee: true },
+      { id: 'mock-2', name: 'คุณสมศรี (ทดสอบ)', rank: 'P', gamesPlayed: 2, checkInTime: yesterday.getTime(), status: 'resting', balance: 140, courtBalance: 80, shuttleBalance: 50, snackBalance: 10, shuttleCount: 2, snackHistory: [{ id: 's2', name: 'กล้วยทอด', price: 10, time: yesterday.getTime() + 200000 }], paidCourtFee: false }
+    ];
+
+    const mockGames: GameRecord[] = [
+      { id: 'g-mock-1', courtId: 'c1', courtName: 'คอร์ด 1', playedAt: yesterday.getTime() + 3600000, players: [{ id: 'mock-1', name: 'คุณสมชาย (ทดสอบ)', rank: 'S1' }, { id: 'mock-2', name: 'คุณสมศรี (ทดสอบ)', rank: 'P' }], shuttlesUsed: 2, shuttleCostPerPerson: 25, courtFeePerPerson: 40 }
+    ];
+
+    const mockPayments: PaymentRecord[] = [
+      { id: 'p-mock-1', memberId: 'mock-1', memberName: 'คุณสมชาย (ทดสอบ)', memberRank: 'S1', amount: 255, timestamp: yesterday.getTime() + 7200000, method: 'Cash', note: '4 เกม' }
+    ];
+
+    const newSession: SessionRecord = {
+      id: `session-mock-${yesterday.getTime()}`,
+      date: yesterday.getTime(),
+      membersSnapshot: mockMembers,
+      gameHistory: mockGames,
+      paymentHistory: mockPayments
+    };
+
+    setSessionHistory(prev => [newSession, ...prev]);
+    alert('สร้างข้อมูลจำลองของ "เมื่อวาน" เรียบร้อยแล้ว! \nตอนนี้คุณสามารถเลือกวันที่จากเมนูด้านบนเพื่อทดสอบปุ่ม "Sync Now" หรือดูข้อมูลย้อนหลังได้เลยครับ');
+  };
+
+  const saveSession = () => {
+    if (gameHistory.length === 0 && paymentHistory.length === 0) return;
+    const session: SessionRecord = {
+      id: Math.random().toString(36).substr(2, 9),
+      date: Date.now(),
+      gameHistory: [...gameHistory],
+      paymentHistory: [...paymentHistory],
+      membersSnapshot: [...members]
+    };
+    setSessionHistory(prev => [session, ...prev]);
   };
 
   const factoryReset = () => {
@@ -167,11 +326,11 @@ export default function App() {
     for (const perm of allCandidatePerms) {
       const testPlayers = [...court.players];
       emptySlotIndices.forEach((idx, i) => { testPlayers[idx] = perm[i]; });
-      
+
       const teamAWeight = getW(testPlayers[0]) + getW(testPlayers[1]);
       const teamBWeight = getW(testPlayers[2]) + getW(testPlayers[3]);
       const diff = Math.abs(teamAWeight - teamBWeight);
-      
+
       if (diff < minDiff) {
         minDiff = diff;
         bestPlayers = testPlayers;
@@ -264,8 +423,46 @@ export default function App() {
 
   const addSnackToMember = (memberId: string, snack: Snack) => {
     setMembers(prev => prev.map(m => m.id === memberId
-      ? { ...m, balance: m.balance + snack.price, snackBalance: m.snackBalance + snack.price }
+      ? {
+        ...m,
+        balance: m.balance + snack.price,
+        snackBalance: m.snackBalance + snack.price,
+        snackHistory: [...m.snackHistory, { ...snack, time: Date.now() }]
+      }
       : m));
+  };
+
+  const removeSnackFromMember = (memberId: string, snackItemIndex: number) => {
+    setMembers(prev => prev.map(m => {
+      if (m.id !== memberId) return m;
+      const snackToRemove = m.snackHistory[snackItemIndex];
+      if (!snackToRemove) return m;
+      const newHistory = [...m.snackHistory];
+      newHistory.splice(snackItemIndex, 1);
+      return {
+        ...m,
+        balance: m.balance - snackToRemove.price,
+        snackBalance: m.snackBalance - snackToRemove.price,
+        snackHistory: newHistory
+      };
+    }));
+  };
+
+  const updateSnackPrice = (memberId: string, itemIndex: number, newPrice: number) => {
+    setMembers(prev => prev.map(m => {
+      if (m.id !== memberId) return m;
+      const snack = m.snackHistory[itemIndex];
+      if (!snack) return m;
+      const diff = newPrice - snack.price;
+      const newHistory = [...m.snackHistory];
+      newHistory[itemIndex] = { ...snack, price: newPrice };
+      return {
+        ...m,
+        balance: m.balance + diff,
+        snackBalance: m.snackBalance + diff,
+        snackHistory: newHistory
+      };
+    }));
   };
 
   // ── EDIT GAME: ปรับลูกย้อนหลัง (คืนเงินส่วนต่าง/เรียกเก็บเพิ่ม) ──────────────
@@ -278,11 +475,12 @@ export default function App() {
     const playerIds = game.players.map(p => p.id);
     setMembers(prev => prev.map(m =>
       playerIds.includes(m.id)
-        ? { ...m, 
-            balance: m.balance + delta, 
-            shuttleBalance: m.shuttleBalance + delta,
-            shuttleCount: m.shuttleCount + shuttleDiff
-          }
+        ? {
+          ...m,
+          balance: m.balance + delta,
+          shuttleBalance: m.shuttleBalance + delta,
+          shuttleCount: m.shuttleCount + shuttleDiff
+        }
         : m
     ));
     setGameHistory(prev => prev.map(g =>
@@ -307,25 +505,83 @@ export default function App() {
     }));
   };
 
-  const updateMemberRank = (memberId: string, rank: Rank) => {
-    setMembers(prev => prev.map(m => m.id === memberId ? { ...m, rank } : m));
+  const undoGame = (gameId: string) => {
+    const game = gameHistory.find(g => g.id === gameId);
+    if (!game) return;
+    if (!confirm(`ต้องการยกเลิกเกม "${game.courtName}" เมื่อเวลา ${format(game.playedAt, 'HH:mm')} ใช่หรือไม่?\n(ระบบจะคืนค่าลูกและค่าสนามให้ผู้เล่นทุกคน)`)) return;
+
+    const playerIds = game.players.map(p => p.id);
+    const numPlayers = game.players.length;
+    const shuttleCost = game.shuttleCostPerPerson;
+    const shuttlesPerPerson = game.shuttlesUsed / numPlayers;
+
+    setMembers(prev => prev.map(m => {
+      if (!playerIds.includes(m.id)) return m;
+
+      const courtRefund = game.courtFeePerPerson || 0;
+
+      return {
+        ...m,
+        gamesPlayed: Math.max(0, m.gamesPlayed - 1),
+        balance: m.balance - shuttleCost - courtRefund,
+        shuttleBalance: m.shuttleBalance - shuttleCost,
+        shuttleCount: Math.max(0, m.shuttleCount - shuttlesPerPerson),
+        courtBalance: m.courtBalance - courtRefund,
+        paidCourtFee: (m.courtBalance - courtRefund) > 0
+      };
+    }));
+
+    setGameHistory(prev => prev.filter(g => g.id !== gameId));
+
+    // ถ้าคอร์ดว่าง เราอาจจะคืนผู้เล่นลงคอร์ด? 
+    // แต่เพื่อความง่าย เราแค่คืนเงินและลบประวัติพอ
   };
 
-  const markAsPaid = (memberId: string) => {
+  const updateMemberRank = (memberId: string, rank: Rank) => {
+    setMembers(prev => prev.map(m => {
+      if (m.id === memberId) {
+        setRankMemory(prevMem => ({ ...prevMem, [m.name]: rank }));
+        return { ...m, rank };
+      }
+      return m;
+    }));
+  };
+
+  const processPayment = (memberId: string, amount: number, method: string = 'Cash', otherMemberIds: string[] = []) => {
     const member = members.find(m => m.id === memberId);
-    if (!member || member.balance === 0) return;
+    if (!member) return;
+
+    const allMemberIds = [memberId, ...otherMemberIds];
+    const otherMembers = members.filter(m => otherMemberIds.includes(m.id));
+    const otherNames = otherMembers.map(m => m.name).join(', ');
+    
+    const note = otherMemberIds.length > 0 
+      ? `จ่ายรวม: ${otherNames}` 
+      : `${member.gamesPlayed} เกม`;
+
     const record: PaymentRecord = {
       id: Math.random().toString(36).substr(2, 9),
       memberId,
       memberName: member.name,
       memberRank: member.rank,
-      amount: member.balance,
-      paidAt: Date.now(),
-      note: `${member.gamesPlayed} เกม`,
+      amount,
+      timestamp: Date.now(),
+      method,
+      note,
     };
+
     setPaymentHistory(prev => [record, ...prev]);
-    setMembers(prev => prev.map(m => m.id === memberId
-      ? { ...m, balance: 0, courtBalance: 0, shuttleBalance: 0, snackBalance: 0 } : m));
+    setMembers(prev => prev.map(m => allMemberIds.includes(m.id)
+      ? { 
+          ...m, 
+          balance: 0, 
+          courtBalance: 0, 
+          shuttleBalance: 0, 
+          snackBalance: 0, 
+          snackHistory: [],
+          shuttleCount: 0,
+          paidCourtFee: true
+        } : m));
   };
 
   const addCourt = (name: string) => {
@@ -340,18 +596,25 @@ export default function App() {
   };
 
   const addMember = (name: string, rank: Rank) => {
+    setRankMemory(prev => ({ ...prev, [name]: rank }));
     setMembers(prev => [...prev, {
       id: Math.random().toString(36).substr(2, 9),
       name, rank, gamesPlayed: 0,
       checkInTime: Date.now(),
       status: 'waiting',
       balance: 0, courtBalance: 0, shuttleBalance: 0, snackBalance: 0,
+      snackHistory: [],
       paidCourtFee: false,
     }]);
     setShowAddMember(false);
   };
 
   const importMembers = (list: { name: string; rank: Rank }[]) => {
+    setRankMemory(prev => {
+      const next = { ...prev };
+      list.forEach(item => { next[item.name] = item.rank; });
+      return next;
+    });
     const now = Date.now();
     setMembers(prev => [
       ...prev,
@@ -362,6 +625,7 @@ export default function App() {
         checkInTime: now + i,
         status: 'waiting' as const,
         balance: 0, courtBalance: 0, shuttleBalance: 0, snackBalance: 0,
+        snackHistory: [],
         paidCourtFee: false,
       }))
     ]);
@@ -411,6 +675,10 @@ export default function App() {
             className="w-full flex items-center gap-3 px-4 py-3 text-primary/80 font-bold hover:bg-primary/5 rounded-xl transition-colors">
             <ShoppingCart size={18} />จัดการสินค้า
           </button>
+          <button onClick={() => setShowImport(true)}
+            className="w-full flex items-center gap-3 px-4 py-3 text-secondary/80 font-bold hover:bg-secondary/5 rounded-xl transition-colors">
+            <FileText size={18} />นำเข้าจากไลน์
+          </button>
         </div>
       </aside>
 
@@ -418,47 +686,10 @@ export default function App() {
       <AddMemberModal open={showAddMember} onClose={() => setShowAddMember(false)} onAdd={addMember} />
       <AddCourtModal open={showAddCourt} onClose={() => setShowAddCourt(false)} onAdd={addCourt} />
       <ManageProductsModal open={showManageProducts} onClose={() => setShowManageProducts(false)} snacks={snacks} onSave={setSnacks} />
-      <ImportMembersModal open={showImport} onClose={() => setShowImport(false)} onImport={importMembers} />
+      <ImportMembersModal open={showImport} onClose={() => setShowImport(false)} onImport={importMembers} rankMemory={rankMemory} />
 
       {/* Main */}
-      <main className="flex-1 lg:ml-64 p-4 md:p-8 court-texture pb-24 lg:pb-8">
-        <header className="mb-8 flex flex-col md:flex-row md:items-center justify-between gap-6">
-          <div className="space-y-1">
-            <h1 className="text-4xl md:text-5xl font-headline font-black text-on-surface tracking-tighter">
-              {tabs.find(t => t.id === activeTab)?.label}
-            </h1>
-            <p className="text-on-surface-variant font-medium text-sm">{format(new Date(), 'EEEE, do MMMM yyyy')}</p>
-          </div>
-          <div className="flex items-center gap-3">
-            {(activeTab === 'courts' || activeTab === 'members') && (
-              <div className="relative group">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface/40 group-focus-within:text-primary transition-colors" size={18} />
-                <input type="text" placeholder="ค้นหาผู้เล่น..." value={searchQuery}
-                  onChange={e => setSearchQuery(e.target.value)}
-                  className="pl-10 pr-4 py-3 bg-white border-none rounded-2xl shadow-sm focus:ring-2 focus:ring-primary/20 w-full md:w-56 transition-all" />
-              </div>
-            )}
-            {activeTab === 'members' && (
-              <>
-                <button onClick={() => setShowImport(true)}
-                  className="flex items-center gap-2 bg-white border-2 border-primary/20 text-primary px-4 py-3 rounded-2xl font-bold text-sm hover:bg-primary/5 transition-colors">
-                  📋 นำเข้าจากไลน์
-                </button>
-                <button onClick={() => setShowAddMember(true)}
-                  className="bg-primary text-white p-3 rounded-2xl shadow-lg shadow-primary/20 hover:scale-105 active:scale-95 transition-transform">
-                  <UserPlus size={24} />
-                </button>
-              </>
-            )}
-            {activeTab === 'courts' && (
-              <button onClick={() => setShowAddCourt(true)}
-                className="bg-primary text-white px-5 py-3 rounded-2xl shadow-lg shadow-primary/20 hover:scale-105 active:scale-95 transition-transform font-bold flex items-center gap-2">
-                <Trophy size={18} />+ เพิ่มคอร์ด
-              </button>
-            )}
-          </div>
-        </header>
-
+      <main className="flex-1 lg:ml-64 p-4 md:p-6 court-texture pb-24 lg:pb-6">
         <AnimatePresence mode="wait">
           <motion.div key={activeTab} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.2 }}>
             {activeTab === 'dashboard' && (
@@ -470,19 +701,40 @@ export default function App() {
                 onAddSnack={addSnackToMember}
                 onUpdateShuttles={updateMemberShuttles}
                 onUpdateRank={updateMemberRank}
+                onRemoveSnack={removeSnackFromMember}
+                onUpdateSnackPrice={updateSnackPrice}
+                viewingSession={viewingSession}
+                onCloseSession={() => setViewingSession(null)}
+                sessionHistory={sessionHistory}
+                onViewSession={(s) => setViewingSession(s)}
+                googleSheetUrl={googleSheetUrl}
+                setGoogleSheetUrl={setGoogleSheetUrl}
+                onSync={syncToGoogleSheets}
+                isSyncing={isSyncing}
+                onProcessPayment={processPayment}
+                onSeedMockHistory={seedMockHistory}
                 onResetDay={resetDay}
                 onFactoryReset={factoryReset}
+                rankMemory={rankMemory}
+                onPushCloud={pushMasterData}
+                onPullCloud={pullMasterData}
               />
             )}
             {activeTab === 'logs' && (
-              <LogsTab gameHistory={gameHistory} />
+              <LogsTab
+                gameHistory={gameHistory}
+                sessionHistory={sessionHistory}
+                onViewSession={setViewingSession}
+                onActiveTab={setActiveTab}
+              />
             )}
             {activeTab === 'members' && (
-              <MembersTab 
-                members={members} 
-                searchQuery={searchQuery} 
-                onRemove={removeMember} 
-                onAddMember={() => setShowAddMember(true)} 
+              <MembersTab
+                members={members}
+                searchQuery={searchQuery}
+                onRemove={removeMember}
+                onAddMember={() => setShowAddMember(true)}
+                onImportLine={() => setShowImport(true)}
                 onUpdateRank={updateMemberRank}
               />
             )}
@@ -493,13 +745,20 @@ export default function App() {
                 onAutoMatch={autoMatch} onStartGame={startGame} onResetCourt={resetCourt}
                 onRemovePlayer={removePlayerFromCourt} onAddPlayer={addPlayerToCourt}
                 onDeleteCourt={deleteCourt} onAddSnack={addSnackToMember}
-                onEditGame={editGame} onUpdateCourt={setCourts}
+                onEditGame={editGame} onUndoGame={undoGame} onUpdateCourt={setCourts}
                 minRankFilter={minRankFilter} setMinRankFilter={setMinRankFilter}
                 maxRankFilter={maxRankFilter} setMaxRankFilter={setMaxRankFilter}
               />
             )}
             {activeTab === 'finance' && (
-              <FinanceTab members={members} paymentHistory={paymentHistory} onMarkAsPaid={markAsPaid} />
+              <FinanceTab 
+                members={members} 
+                paymentHistory={paymentHistory} 
+                onMarkAsPaid={(id) => {
+                  const m = members.find(mem => mem.id === id);
+                  if (m) processPayment(id, m.balance);
+                }} 
+              />
             )}
           </motion.div>
         </AnimatePresence>

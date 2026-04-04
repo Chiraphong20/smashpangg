@@ -22,6 +22,7 @@ interface Props {
   onDeleteCourt: (courtId: string) => void;
   onAddSnack: (memberId: string, snack: Snack) => void;
   onEditGame: (gameId: string, newShuttles: number) => void;
+  onUndoGame: (gameId: string) => void;
   onUpdateCourt: React.Dispatch<React.SetStateAction<Court[]>>;
   minRankFilter: Rank;
   setMinRankFilter: (r: Rank) => void;
@@ -30,11 +31,12 @@ interface Props {
 }
 
 // ── Player Picker ─────────────────────────────────────────────────────────────
-function PlayerPicker({ members, currentPlayerId, onSelect, onClose }: {
+function PlayerPicker({ members, currentPlayerId, onSelect, onClose, position }: {
   members: Member[];
   currentPlayerId: string | null;
   onSelect: (id: string | null) => void;
   onClose: () => void;
+  position: 'top' | 'bottom';
 }) {
   const [q, setQ] = useState('');
   const ref = useRef<HTMLInputElement>(null);
@@ -47,10 +49,15 @@ function PlayerPicker({ members, currentPlayerId, onSelect, onClose }: {
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -6 }} transition={{ duration: 0.12 }}
+      initial={{ opacity: 0, y: position === 'top' ? -10 : 10 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: position === 'top' ? -10 : 10 }}
+      transition={{ duration: 0.12 }}
       onClick={e => e.stopPropagation()}
-      className="absolute top-full mt-2 left-0 right-0 z-50 bg-white rounded-2xl shadow-2xl border border-on-surface/5 overflow-hidden"
+      className={cn(
+        "absolute left-0 right-0 z-50 bg-white rounded-2xl shadow-2xl border border-on-surface/5 overflow-hidden",
+        position === 'top' ? "top-full mt-2" : "bottom-full mb-2"
+      )}
     >
       <div className="p-3 border-b border-on-surface/5">
         <div className="relative">
@@ -178,7 +185,13 @@ function SlotCard({ slotIndex, playerId, team, members, onSelect, locked }: {
 
       <AnimatePresence>
         {open && !locked && (
-          <PlayerPicker members={members} currentPlayerId={playerId} onSelect={onSelect} onClose={() => setOpen(false)} />
+          <PlayerPicker 
+            members={members} 
+            currentPlayerId={playerId} 
+            onSelect={onSelect} 
+            onClose={() => setOpen(false)} 
+            position={team === 'A' ? 'top' : 'bottom'}
+          />
         )}
       </AnimatePresence>
     </div>
@@ -186,10 +199,11 @@ function SlotCard({ slotIndex, playerId, team, members, onSelect, locked }: {
 }
 
 // ── Game History Row (editable) ──────────────────────────────────────────────
-function GameRow({ game, onEditGame, shuttlePrice }: {
+function GameRow({ game, onEditGame, onUndoGame, shuttlePrice }: {
   key?: string;
   game: GameRecord;
   onEditGame: (id: string, n: number) => void;
+  onUndoGame: (id: string) => void;
   shuttlePrice: number;
 }) {
   const teamA = game.players.slice(0, 2);
@@ -241,6 +255,15 @@ function GameRow({ game, onEditGame, shuttlePrice }: {
         <p className="text-white/40 text-[10px] font-black">ค่าลูก/คน</p>
         <p className="text-white font-headline font-black text-base">฿{game.shuttleCostPerPerson.toFixed(0)}</p>
       </div>
+
+      {/* Undo Button */}
+      <button
+        onClick={() => onUndoGame(game.id)}
+        className="p-2 text-white/20 hover:text-red-400 hover:bg-red-400/10 rounded-xl transition-all"
+        title="ยกเลิกผลการตี (คืนเงินทุกคน)"
+      >
+        <Trash2 size={16} />
+      </button>
     </div>
   );
 }
@@ -249,7 +272,7 @@ function GameRow({ game, onEditGame, shuttlePrice }: {
 export function CourtsTab({
   members, courts, snacks, searchQuery, gameHistory,
   onAutoMatch, onStartGame, onResetCourt, onRemovePlayer, onAddPlayer,
-  onDeleteCourt, onAddSnack, onEditGame, onUpdateCourt,
+  onDeleteCourt, onAddSnack, onEditGame, onUndoGame, onUpdateCourt,
   minRankFilter, setMinRankFilter, maxRankFilter, setMaxRankFilter
 }: Props) {
   const [selectedCourtId, setSelectedCourtId] = useState<string | null>(courts[0]?.id ?? null);
@@ -453,7 +476,7 @@ export function CourtsTab({
 
           {/* ── Court Visualization ── */}
           <section className="xl:col-span-9 space-y-4">
-            <div className="rounded-[2rem] overflow-hidden shadow-xl"
+            <div className="rounded-[2rem] shadow-xl relative"
               style={{ background: isActive ? 'linear-gradient(160deg,#0f3020,#082212)' : 'linear-gradient(160deg,#1a3a2a,#0f2218)' }}>
 
               {/* Header */}
@@ -489,7 +512,7 @@ export function CourtsTab({
                   {isActive ? (
                     <button onClick={() => onResetCourt(selected.id)}
                       className="flex items-center gap-2 bg-red-500 text-white px-5 py-2.5 rounded-xl font-black uppercase text-sm tracking-widest shadow-lg hover:bg-red-400 hover:scale-105 transition-all">
-                      <RotateCcw size={16} />Reset
+                      <Check size={16} />จบเกม
                     </button>
                   ) : (
                     <>
@@ -519,36 +542,48 @@ export function CourtsTab({
 
               {/* Court area */}
               <div className="px-6 pb-6">
-                <div className="relative rounded-2xl overflow-hidden" style={{ background: isActive ? '#155c2e' : '#1d7a3a' }}>
-                  <svg className="absolute inset-0 w-full h-full" preserveAspectRatio="none" viewBox="0 0 100 100"
-                    style={{ opacity: 0.18, fill: 'none', stroke: 'white', strokeWidth: 0.5 }}>
-                    <rect x="5" y="3" width="90" height="94" />
-                    <line x1="5" y1="50" x2="95" y2="50" strokeWidth="1" />
-                    <line x1="5" y1="26" x2="95" y2="26" /><line x1="5" y1="74" x2="95" y2="74" />
-                    <line x1="50" y1="3" x2="50" y2="26" /><line x1="50" y1="74" x2="50" y2="97" />
-                    <line x1="5" y1="15" x2="95" y2="15" /><line x1="5" y1="85" x2="95" y2="85" />
-                    <line x1="12" y1="3" x2="12" y2="97" /><line x1="88" y1="3" x2="88" y2="97" />
-                  </svg>
-                  <div className="absolute left-0 right-0" style={{ top: '50%', transform: 'translateY(-50%)' }}>
-                    <div className="w-full h-1.5 bg-white/50 relative">
-                      <div className="absolute left-1/2 -top-4 -translate-x-1/2 bg-white/90 text-green-900 text-[10px] font-black px-3 py-1 rounded-full uppercase tracking-widest">NET</div>
+                <div className="relative">
+                  {/* Background Layer (Clipped) */}
+                  <div className={cn(
+                    "absolute inset-0 rounded-2xl overflow-hidden transition-colors",
+                    isActive ? "bg-[#155c2e]" : "bg-[#1d7a3a]"
+                  )}>
+                    <svg className="absolute inset-0 w-full h-full" preserveAspectRatio="none" viewBox="0 0 100 100"
+                      style={{ opacity: 0.18, fill: 'none', stroke: 'white', strokeWidth: 0.5 }}>
+                      <rect x="5" y="3" width="90" height="94" />
+                      <line x1="5" y1="50" x2="95" y2="50" strokeWidth="1" />
+                      <line x1="5" y1="26" x2="95" y2="26" /><line x1="5" y1="74" x2="95" y2="74" />
+                      <line x1="50" y1="3" x2="50" y2="26" /><line x1="50" y1="74" x2="50" y2="97" />
+                      <line x1="5" y1="15" x2="95" y2="15" /><line x1="5" y1="85" x2="95" y2="85" />
+                      <line x1="12" y1="3" x2="12" y2="97" /><line x1="88" y1="3" x2="88" y2="97" />
+                    </svg>
+                    
+                    {/* Net */}
+                    <div className="absolute left-0 right-0" style={{ top: '50%', transform: 'translateY(-50%)' }}>
+                      <div className="w-full h-1.5 bg-white/30 relative">
+                        <div className="absolute left-1/2 -top-4 -translate-x-1/2 bg-white/90 text-green-900 text-[10px] font-black px-3 py-1 rounded-full uppercase tracking-widest">NET</div>
+                      </div>
                     </div>
                   </div>
-                  <div className="absolute top-2 left-1/2 -translate-x-1/2 bg-primary/80 text-white text-xs font-black px-4 py-1 rounded-full z-10">ทีม A</div>
-                  <div className="absolute bottom-2 left-1/2 -translate-x-1/2 bg-secondary/80 text-white text-xs font-black px-4 py-1 rounded-full z-10">ทีม B</div>
 
-                  <div className="relative z-10 grid grid-rows-2">
-                    <div className="grid grid-cols-2 gap-4 p-6 pb-10">
-                      {[0, 1].map(i => (
-                        <SlotCard key={i} slotIndex={i} playerId={selected.players[i]} team="A"
-                          members={members} onSelect={id => handleSelect(i, id)} locked={isActive} />
-                      ))}
-                    </div>
-                    <div className="grid grid-cols-2 gap-4 p-6 pt-10">
-                      {[2, 3].map(i => (
-                        <SlotCard key={i} slotIndex={i} playerId={selected.players[i]} team="B"
-                          members={members} onSelect={id => handleSelect(i, id)} locked={isActive} />
-                      ))}
+                  {/* Interactive Layer (Allow Overflows for Search) */}
+                  <div className="relative z-10">
+                    <div className="absolute top-2 left-1/2 -translate-x-1/2 bg-primary/80 text-white text-xs font-black px-4 py-1 rounded-full z-10 shadow-lg">ทีม A</div>
+                    <div className="absolute bottom-2 left-1/2 -translate-x-1/2 bg-secondary/80 text-white text-xs font-black px-4 py-1 rounded-full z-10 shadow-lg">ทีม B</div>
+
+                    <div className="grid grid-rows-2">
+                      <div className="grid grid-cols-2 gap-4 p-6 pb-10">
+                        {[0, 1].map(i => (
+                          <SlotCard key={i} slotIndex={i} playerId={selected.players[i]} team="A"
+                            members={members} onSelect={id => handleSelect(i, id)} locked={isActive} />
+                        ))}
+                      </div>
+                      <div className="grid grid-cols-2 gap-4 p-6 pt-10">
+                        {[2, 3].map(i => (
+                          <SlotCard key={i} slotIndex={i} playerId={selected.players[i]} team="B"
+                            members={members} onSelect={id => handleSelect(i, id)} locked={isActive} />
+                        ))}
+                      </div>
                     </div>
                   </div>
                 </div>
@@ -577,7 +612,7 @@ export function CourtsTab({
                   </div>
                   <div className="space-y-2">
                     {courtGames.map(game => (
-                      <GameRow key={game.id} game={game} onEditGame={onEditGame} shuttlePrice={shuttlePrice} />
+                      <GameRow key={game.id} game={game} onEditGame={onEditGame} onUndoGame={onUndoGame} shuttlePrice={shuttlePrice} />
                     ))}
                   </div>
                 </div>

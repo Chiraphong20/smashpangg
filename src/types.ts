@@ -16,7 +16,8 @@ export interface Member {
   courtBalance: number;  // ค่าสนาม
   shuttleBalance: number;// ค่าลูก
   shuttleCount: number;  // จำนวนลูก
-  snackBalance: number;  // ค่าน้ำ/ขนม
+  snackBalance: number;  // ค่าน้ำ/ขนมรวม
+  snackHistory: Array<{ id: string; name: string; price: number; time: number }>; // ประวัติการซื้อสินค้า
   paidCourtFee: boolean;
 }
 
@@ -53,8 +54,17 @@ export interface PaymentRecord {
   memberName: string;
   memberRank: Rank;
   amount: number;
-  paidAt: number;
-  note: string;
+  timestamp: number;
+  method: string;
+  note?: string;
+}
+
+export interface SessionRecord {
+  id: string;
+  date: number;
+  gameHistory: GameRecord[];
+  paymentHistory: PaymentRecord[];
+  membersSnapshot: Member[];
 }
 
 export const RANKS: Rank[] = [

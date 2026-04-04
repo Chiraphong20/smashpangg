@@ -3,6 +3,7 @@ import { X, FileText, UserPlus, Trash2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { Rank, RANKS, RANK_COLORS, RANK_LEVEL_LABELS } from '../types';
+import { Cloud, CheckCircle2 } from 'lucide-react';
 
 interface ParsedMember {
   id: string;
@@ -14,6 +15,7 @@ interface Props {
   open: boolean;
   onClose: () => void;
   onImport: (members: { name: string; rank: Rank }[]) => void;
+  rankMemory: Record<string, Rank>;
 }
 
 // Parse LINE signup text → names
@@ -26,19 +28,26 @@ function parseLine(text: string): string[] {
     if (!trimmed) continue;
 
     // Match "1 ชื่อ", "1. ชื่อ", "1ชื่อ", "- ชื่อ" patterns
-    const match = trimmed.match(/^[\d]+[\.\):\s-]*\s*(.+)$/) || trimmed.match(/^[-•*]\s+(.+)$/);
+    const match = trimmed.match(/^(\d+[\.\):\s-]*)\s*(.+)$/) || trimmed.match(/^([-•*]\s+)(.+)$/);
     if (match) {
-      let name = match[1].trim();
-      // Remove trailing notes like time "18.30", parens, extra text that starts after 2 Thai words
-      // Keep the full name as-is — user can edit
-      name = name.replace(/\s*\(ไม่มา\).*$/i, '').trim();
-      names.push(name);
+      let content = match[2].trim();
+      
+      // Remove trailing time patterns like 17:30, 18.00, 19:00, (19:00), 17.30น.
+      content = content.replace(/\s*\(?\d{1,2}[:\.]\d{2}\s*(น\.|น|นับ)?\)?.*$/i, '');
+      
+      // Remove parenthesized notes at the end
+      content = content.replace(/\s*\(.*?\).*$/, '');
+      
+      const finalName = content.trim();
+      if (finalName && isNaN(Number(finalName))) {
+        names.push(finalName);
+      }
     }
   }
   return names;
 }
 
-export function ImportMembersModal({ open, onClose, onImport }: Props) {
+export function ImportMembersModal({ open, onClose, onImport, rankMemory }: Props) {
   const [text, setText] = useState('');
   const [parsed, setParsed] = useState<ParsedMember[]>([]);
   const [step, setStep] = useState<'paste' | 'confirm'>('paste');
@@ -46,7 +55,11 @@ export function ImportMembersModal({ open, onClose, onImport }: Props) {
   const handleParse = () => {
     const names = parseLine(text);
     if (names.length === 0) { alert('ไม่พบรายชื่อ — ลองวางข้อความในรูปแบบ "1 ชื่อ" หรือ "- ชื่อ"'); return; }
-    setParsed(names.map((name, i) => ({ id: `import-${i}`, name, rank: 'P' as Rank })));
+    setParsed(names.map((name, i) => ({ 
+      id: `import-${i}`, 
+      name, 
+      rank: rankMemory[name] || ('P' as Rank) 
+    })));
     setStep('confirm');
   };
 
