@@ -28,6 +28,7 @@ interface Props {
   setMinRankFilter: (r: Rank) => void;
   maxRankFilter: Rank;
   setMaxRankFilter: (r: Rank) => void;
+  onAddCourt: () => void;
 }
 
 // ── Player Picker ─────────────────────────────────────────────────────────────
@@ -273,7 +274,8 @@ export function CourtsTab({
   members, courts, snacks, searchQuery, gameHistory,
   onAutoMatch, onStartGame, onResetCourt, onRemovePlayer, onAddPlayer,
   onDeleteCourt, onAddSnack, onEditGame, onUndoGame, onUpdateCourt,
-  minRankFilter, setMinRankFilter, maxRankFilter, setMaxRankFilter
+  minRankFilter, setMinRankFilter, maxRankFilter, setMaxRankFilter,
+  onAddCourt
 }: Props) {
   const [selectedCourtId, setSelectedCourtId] = useState<string | null>(courts[0]?.id ?? null);
   const [posTarget, setPosTarget] = useState<Member | null>(null);
@@ -367,6 +369,12 @@ export function CourtsTab({
             </button>
           );
         })}
+        
+        {/* Add Court button */}
+        <button onClick={onAddCourt}
+          className="flex items-center gap-2 px-5 py-3.5 rounded-2xl font-black text-base transition-all border-2 border-dashed border-on-surface/10 text-on-surface/40 hover:border-primary/50 hover:text-primary hover:bg-primary/5">
+          <Plus size={18} /> เพิ่มคอร์ด
+        </button>
       </div>
 
       {selected ? (

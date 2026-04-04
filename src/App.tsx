@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Users, LayoutDashboard, Trophy, Banknote, UserPlus, Search, ShoppingCart, History, FileText } from 'lucide-react';
+import { Users, LayoutDashboard, Trophy, Banknote, UserPlus, Search, ShoppingCart, History, FileText, ChevronLeft, ChevronRight, Menu } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from './lib/utils';
 import { Member, Court, Rank, RANKS, RANK_COLORS, Snack, PaymentRecord, GameRecord, DEFAULT_SNACKS, SessionRecord } from './types';
@@ -53,6 +53,7 @@ export default function App() {
   const [googleSheetUrl, setGoogleSheetUrl] = useState('https://script.google.com/macros/s/AKfycbwU2qbY_UZy3AQgruvdWkfl8dXrvEfrJQmFWpTiBW5l5NgQBaqfFmiizpJbpqOXjk8/exec');
   const [isSyncing, setIsSyncing] = useState(false);
   const [rankMemory, setRankMemory] = useState<Record<string, Rank>>({});
+  const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
   // Load from localStorage
   useEffect(() => {
@@ -120,9 +121,15 @@ export default function App() {
       snackBalance: 0,
       snackHistory: [],
       paidCourtFee: false,
-      status: 'waiting',
+      status: 'resting',
       checkInTime: Date.now()
     })));
+  };
+
+  const checkInMember = (memberId: string) => {
+    setMembers(prev => prev.map(m => m.id === memberId 
+      ? { ...m, status: 'waiting', checkInTime: Date.now() } 
+      : m));
   };
 
   const syncToGoogleSheets = async () => {
@@ -647,49 +654,86 @@ export default function App() {
   return (
     <div className="min-h-screen bg-background flex flex-col lg:flex-row">
       {/* Sidebar */}
-      <aside className="hidden lg:flex flex-col fixed left-0 top-0 h-screen w-64 bg-surface-container p-4 gap-2 border-r border-on-surface/5 pt-6">
-        <div className="mb-8 px-2 flex items-center gap-3">
-          <div className="w-10 h-10 bg-primary rounded-xl flex items-center justify-center text-white font-black italic text-xl shadow-lg shadow-primary/20">S</div>
-          <div>
-            <h4 className="font-headline font-black text-lg text-on-surface tracking-tight">SmashIT</h4>
-            <p className="text-[10px] font-bold text-primary uppercase tracking-widest">Organizer Pro</p>
-          </div>
+      <aside className={cn(
+        "hidden lg:flex flex-col fixed left-0 top-0 h-screen bg-surface-container border-r border-on-surface/5 transition-all duration-300 z-[100]",
+        isSidebarCollapsed ? "w-20 p-2" : "w-64 p-4"
+      )}>
+        <div className={cn("mb-8 flex items-center gap-3 transition-all", isSidebarCollapsed ? "justify-center pt-4" : "px-2 pt-6")}>
+          <div className="w-10 h-10 bg-primary rounded-xl flex items-center justify-center text-white font-black italic text-xl shadow-lg shadow-primary/20 shrink-0">S</div>
+          {!isSidebarCollapsed && (
+            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+              <h4 className="font-headline font-black text-lg text-on-surface tracking-tight">SmashIT</h4>
+              <p className="text-[10px] font-bold text-primary uppercase tracking-widest">Organizer Pro</p>
+            </motion.div>
+          )}
         </div>
+
         <nav className="flex-1 space-y-1">
           {tabs.map(item => (
             <button key={item.id} onClick={() => setActiveTab(item.id as Tab)}
-              className={cn('w-full flex items-center gap-3 px-4 py-3 rounded-xl font-bold transition-all duration-200',
+              title={isSidebarCollapsed ? item.label : ""}
+              className={cn('w-full flex items-center rounded-xl font-bold transition-all duration-200',
+                isSidebarCollapsed ? "justify-center p-3" : "gap-3 px-4 py-3",
                 activeTab === item.id ? 'bg-white text-primary shadow-sm translate-x-1' : 'text-on-surface/60 hover:text-on-surface hover:bg-white/50')}>
-              <item.icon size={20} />{item.label}
+              <item.icon size={20} className="shrink-0" />
+              {!isSidebarCollapsed && <span>{item.label}</span>}
             </button>
           ))}
         </nav>
+
         <div className="mt-auto pt-4 border-t border-on-surface/5 space-y-4">
-          <div className="bg-primary/5 p-4 rounded-2xl">
-            <p className="text-[10px] font-black text-primary uppercase mb-1">รายรับวันนี้</p>
-            <p className="text-xl font-headline font-black text-on-surface">
-              ฿{(members.reduce((a, m) => a + m.balance, 0) + paymentHistory.reduce((a, r) => a + r.amount, 0)).toLocaleString()}
-            </p>
-          </div>
+          {!isSidebarCollapsed ? (
+            <div className="bg-primary/5 p-4 rounded-2xl">
+              <p className="text-[10px] font-black text-primary uppercase mb-1">รายรับวันนี้</p>
+              <p className="text-xl font-headline font-black text-on-surface">
+                ฿{(members.reduce((a, m) => a + m.balance, 0) + paymentHistory.reduce((a, r) => a + r.amount, 0)).toLocaleString()}
+              </p>
+            </div>
+          ) : (
+            <div className="flex justify-center text-primary" title="รายรับวันนี้">
+              <Banknote size={20} />
+            </div>
+          )}
+
           <button onClick={() => setShowManageProducts(true)}
-            className="w-full flex items-center gap-3 px-4 py-3 text-primary/80 font-bold hover:bg-primary/5 rounded-xl transition-colors">
-            <ShoppingCart size={18} />จัดการสินค้า
+            title={isSidebarCollapsed ? "จัดการสินค้า" : ""}
+            className={cn("w-full flex items-center text-primary/80 font-bold hover:bg-primary/5 rounded-xl transition-colors",
+              isSidebarCollapsed ? "justify-center p-3" : "gap-3 px-4 py-3")}>
+            <ShoppingCart size={18} className="shrink-0" />
+            {!isSidebarCollapsed && <span>จัดการสินค้า</span>}
           </button>
+          
           <button onClick={() => setShowImport(true)}
-            className="w-full flex items-center gap-3 px-4 py-3 text-secondary/80 font-bold hover:bg-secondary/5 rounded-xl transition-colors">
-            <FileText size={18} />นำเข้าจากไลน์
+            title={isSidebarCollapsed ? "นำเข้าจากไลน์" : ""}
+            className={cn("w-full flex items-center text-secondary/80 font-bold hover:bg-secondary/5 rounded-xl transition-colors",
+              isSidebarCollapsed ? "justify-center p-3" : "gap-3 px-4 py-3")}>
+            <FileText size={18} className="shrink-0" />
+            {!isSidebarCollapsed && <span>นำเข้าจากไลน์</span>}
+          </button>
+
+          {/* Toggle Button */}
+          <button 
+            onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+            className="w-full flex items-center justify-center p-3 text-on-surface/20 hover:text-on-surface/60 transition-colors"
+          >
+            {isSidebarCollapsed ? <ChevronRight size={20} /> : <ChevronLeft size={20} />}
           </button>
         </div>
       </aside>
 
-      {/* Modals */}
-      <AddMemberModal open={showAddMember} onClose={() => setShowAddMember(false)} onAdd={addMember} />
-      <AddCourtModal open={showAddCourt} onClose={() => setShowAddCourt(false)} onAdd={addCourt} />
-      <ManageProductsModal open={showManageProducts} onClose={() => setShowManageProducts(false)} snacks={snacks} onSave={setSnacks} />
-      <ImportMembersModal open={showImport} onClose={() => setShowImport(false)} onImport={importMembers} rankMemory={rankMemory} />
+      {/* Main Container */}
+      <div className={cn(
+        "flex-1 transition-all duration-300",
+        isSidebarCollapsed ? "lg:ml-20" : "lg:ml-64"
+      )}>
+        {/* Modals */}
+        <AddMemberModal open={showAddMember} onClose={() => setShowAddMember(false)} onAdd={addMember} existingNames={members.map(m => m.name)} />
+        <AddCourtModal open={showAddCourt} onClose={() => setShowAddCourt(false)} onAdd={addCourt} />
+        <ManageProductsModal open={showManageProducts} onClose={() => setShowManageProducts(false)} snacks={snacks} onSave={setSnacks} />
+        <ImportMembersModal open={showImport} onClose={() => setShowImport(false)} onImport={importMembers} rankMemory={rankMemory} existingNames={members.map(m => m.name)} />
 
-      {/* Main */}
-      <main className="flex-1 lg:ml-64 p-4 md:p-6 court-texture pb-24 lg:pb-6">
+      {/* Main Content Area */}
+      <main className="p-4 md:p-6 court-texture pb-24 lg:pb-6 min-h-screen">
         <AnimatePresence mode="wait">
           <motion.div key={activeTab} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.2 }}>
             {activeTab === 'dashboard' && (
@@ -718,6 +762,10 @@ export default function App() {
                 rankMemory={rankMemory}
                 onPushCloud={pushMasterData}
                 onPullCloud={pullMasterData}
+                onAddCourt={() => setShowAddCourt(true)}
+                isSidebarCollapsed={isSidebarCollapsed}
+                onCheckIn={checkInMember}
+                onRemove={removeMember}
               />
             )}
             {activeTab === 'logs' && (
@@ -736,6 +784,8 @@ export default function App() {
                 onAddMember={() => setShowAddMember(true)}
                 onImportLine={() => setShowImport(true)}
                 onUpdateRank={updateMemberRank}
+                onAddCourt={() => setShowAddCourt(true)}
+                onCheckIn={checkInMember}
               />
             )}
             {activeTab === 'courts' && (
@@ -748,6 +798,7 @@ export default function App() {
                 onEditGame={editGame} onUndoGame={undoGame} onUpdateCourt={setCourts}
                 minRankFilter={minRankFilter} setMinRankFilter={setMinRankFilter}
                 maxRankFilter={maxRankFilter} setMaxRankFilter={setMaxRankFilter}
+                onAddCourt={() => setShowAddCourt(true)}
               />
             )}
             {activeTab === 'finance' && (
@@ -763,6 +814,7 @@ export default function App() {
           </motion.div>
         </AnimatePresence>
       </main>
+      </div>
 
       {/* Mobile Nav */}
       <nav className="lg:hidden fixed bottom-0 left-0 w-full bg-white/90 backdrop-blur-xl flex justify-around items-center px-4 pb-8 pt-3 z-50 border-t border-on-surface/5">

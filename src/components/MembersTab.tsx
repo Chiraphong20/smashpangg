@@ -11,11 +11,13 @@ interface Props {
   onAddMember: () => void;
   onImportLine: () => void;
   onUpdateRank: (memberId: string, rank: Rank) => void;
+  onAddCourt: () => void;
+  onCheckIn: (memberId: string) => void;
 }
 
 type Filter = 'all' | 'waiting' | 'playing' | 'resting';
 
-export function MembersTab({ members, searchQuery, onRemove, onAddMember, onImportLine, onUpdateRank }: Props) {
+export function MembersTab({ members, searchQuery, onRemove, onAddMember, onImportLine, onUpdateRank, onAddCourt, onCheckIn }: Props) {
   const [filter, setFilter] = useState<Filter>('all');
   const [confirmDelete, setConfirmDelete] = useState<string | null>(null);
 
@@ -80,11 +82,21 @@ export function MembersTab({ members, searchQuery, onRemove, onAddMember, onImpo
               </div>
 
               <div className="flex items-center justify-between mt-4 pt-4 border-t border-on-surface/5">
-                <div className={cn('text-[10px] font-black px-3 py-1 rounded-full uppercase',
-                  member.status === 'playing' ? 'bg-tertiary/10 text-tertiary' :
-                  member.status === 'waiting' ? 'bg-secondary/10 text-secondary' :
-                  'bg-on-surface/5 text-on-surface/40')}>
-                  {member.status === 'playing' ? '🏸 เล่นอยู่' : member.status === 'waiting' ? '⏳ รอในคิว' : '💤 พักผ่อน'}
+                <div className="flex items-center gap-2">
+                  <div className={cn('text-[10px] font-black px-3 py-1 rounded-full uppercase',
+                    member.status === 'playing' ? 'bg-tertiary/10 text-tertiary' :
+                    member.status === 'waiting' ? 'bg-secondary/10 text-secondary' :
+                    'bg-on-surface/5 text-on-surface/40')}>
+                    {member.status === 'playing' ? '🏸 เล่นอยู่' : member.status === 'waiting' ? '⏳ รอในคิว' : '💤 พักผ่อน'}
+                  </div>
+                  {member.status === 'resting' && (
+                    <button
+                      onClick={() => onCheckIn(member.id)}
+                      className="text-[10px] font-black bg-primary text-white px-3 py-1 rounded-full hover:scale-105 active:scale-95 transition-all flex items-center gap-1 shadow-sm shadow-primary/20"
+                    >
+                      <UserPlus size={10} strokeWidth={3} /> เช็คอิน
+                    </button>
+                  )}
                 </div>
                 <div className="flex items-center gap-2">
                   {member.balance > 0 && (

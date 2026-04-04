@@ -16,6 +16,7 @@ interface Props {
   onClose: () => void;
   onImport: (members: { name: string; rank: Rank }[]) => void;
   rankMemory: Record<string, Rank>;
+  existingNames: string[];
 }
 
 // Parse LINE signup text → names
@@ -47,7 +48,7 @@ function parseLine(text: string): string[] {
   return names;
 }
 
-export function ImportMembersModal({ open, onClose, onImport, rankMemory }: Props) {
+export function ImportMembersModal({ open, onClose, onImport, rankMemory, existingNames }: Props) {
   const [text, setText] = useState('');
   const [parsed, setParsed] = useState<ParsedMember[]>([]);
   const [step, setStep] = useState<'paste' | 'confirm'>('paste');
@@ -75,7 +76,21 @@ export function ImportMembersModal({ open, onClose, onImport, rankMemory }: Prop
 
   const handleImport = () => {
     const valid = parsed.filter(p => p.name.trim().length > 0);
-    onImport(valid.map(p => ({ name: p.name.trim(), rank: p.rank })));
+    const existingSet = new Set(existingNames.map(n => n.toLowerCase()));
+    
+    const duplicates = valid.filter(p => existingSet.has(p.name.trim().toLowerCase()));
+    const nonDuplicates = valid.filter(p => !existingSet.has(p.name.trim().toLowerCase()));
+
+    if (duplicates.length > 0) {
+      alert(`ข้าม ${duplicates.length} รายชื่อที่มีอยู่แล้วในระบบ: ${duplicates.map(d => d.name).join(', ')}`);
+    }
+
+    if (nonDuplicates.length > 0) {
+      onImport(nonDuplicates.map(p => ({ name: p.name.trim(), rank: p.rank })));
+    } else if (duplicates.length === 0) {
+       alert('ไม่พบรายชื่อให้นำเข้า');
+    }
+
     setText('');
     setParsed([]);
     setStep('paste');

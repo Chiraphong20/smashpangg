@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { Trophy, Users, Banknote, TrendingUp, ChevronDown, ChevronUp, X, ShoppingCart, Plus, RefreshCw, Trash2, Clock, Search, Monitor, Calendar, History, CheckCircle2, Cloud, Upload, Download } from 'lucide-react';
+import { useState, useEffect, useMemo } from 'react';
+import { Trophy, Users, Banknote, TrendingUp, ChevronDown, ChevronUp, X, ShoppingCart, Plus, RefreshCw, Trash2, Clock, Search, Monitor, Calendar, History, CheckCircle2, Cloud, Upload, Download, UserPlus } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { Member, Court, PaymentRecord, GameRecord, Snack, Rank, RANKS, RANK_COLORS, RANK_LEVEL_LABELS, SessionRecord } from '../types';
@@ -36,6 +36,10 @@ interface Props {
   rankMemory: Record<string, Rank>;
   onPushCloud: () => Promise<void>;
   onPullCloud: () => Promise<void>;
+  onAddCourt: () => void;
+  isSidebarCollapsed: boolean;
+  onCheckIn: (memberId: string) => void;
+  onRemove: (memberId: string) => void;
 }
 
 // Modal showing a player's checkout details (snacks, games, and payment)
@@ -283,7 +287,8 @@ export function DashboardTab({
   onAddSnack, onUpdateShuttles, onUpdateRank, onRemoveSnack, onUpdateSnackPrice, viewingSession, onCloseSession, 
   sessionHistory, onViewSession,
   googleSheetUrl, setGoogleSheetUrl, onSync, isSyncing, onProcessPayment, onSeedMockHistory,
-  onResetDay, onFactoryReset, rankMemory, onPushCloud, onPullCloud
+  onResetDay, onFactoryReset, rankMemory, onPushCloud, onPullCloud,
+  onAddCourt, isSidebarCollapsed, onCheckIn, onRemove
 }: Props) {
   const [selectedMember, setSelectedMember] = useState<Member | null>(null);
   const [posTarget, setPosTarget] = useState<Member | null>(null);
@@ -316,9 +321,22 @@ export function DashboardTab({
     return () => window.removeEventListener('keyup', handleKeyUp);
   }, [checkedIds, bulkCheckout, selectedMember, posTarget, settingsOpen, currentMembers]);
 
-  const filteredMembers = currentMembers
-    .filter(m => m.name.toLowerCase().includes(dbSearch.toLowerCase()))
-    .sort((a, b) => b.gamesPlayed - a.gamesPlayed || b.balance - a.balance);
+  const filteredMembers = useMemo(() => {
+    const query = dbSearch.toLowerCase().trim();
+    if (isReadOnly) {
+      return currentMembers.filter(m => m.name.toLowerCase().includes(query));
+    }
+
+    // On Dashboard, if NOT searching: only show ACTIVE (waiting, playing, or balance > 0)
+    // If SEARCHING: show active + resting results for check-in
+    if (!query) {
+      return currentMembers.filter(m => m.status !== 'resting' || m.balance > 0);
+    }
+    
+    return currentMembers.filter(m => m.name.toLowerCase().includes(query));
+  }, [currentMembers, dbSearch, isReadOnly]);
+
+  const sortedMembers = [...filteredMembers].sort((a, b) => b.gamesPlayed - a.gamesPlayed || b.balance - a.balance);
 
   const activePlayers = currentMembers.filter(m => m.status === 'playing').length;
   const waitingPlayers = currentMembers.filter(m => m.status === 'waiting').length;
@@ -435,7 +453,7 @@ export function DashboardTab({
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface/30 group-focus-within:text-primary transition-colors" size={14} />
             <input
               type="text"
-              placeholder="ค้นหาชื่อลูกค้า..."
+              placeholder="ค้นหาชื่อลูกค้า หรือเช็คอินสมาชิกเก่า..."
               value={dbSearch}
               onChange={e => setDbSearch(e.target.value)}
               className="w-full pl-9 pr-4 py-2 bg-background border-none rounded-xl text-xs font-bold focus:ring-2 focus:ring-primary/20 outline-none shadow-sm transition-all"
@@ -449,9 +467,9 @@ export function DashboardTab({
             {!isReadOnly && (
               <input 
                 type="checkbox" 
-                checked={checkedIds.length === filteredMembers.filter(m => m.balance > 0).length && checkedIds.length > 0}
+                checked={checkedIds.length === sortedMembers.filter(m => m.balance > 0).length && checkedIds.length > 0}
                 onChange={(e) => {
-                  if (e.target.checked) setCheckedIds(filteredMembers.filter(m => m.balance > 0).map(m => m.id));
+                  if (e.target.checked) setCheckedIds(sortedMembers.filter(m => m.balance > 0).map(m => m.id));
                   else setCheckedIds([]);
                 }}
                 className="w-4 h-4 rounded border-on-surface/10 text-primary focus:ring-primary/20"
@@ -468,7 +486,7 @@ export function DashboardTab({
 
         {/* Rows */}
         <div className="divide-y divide-on-surface/5 overflow-y-auto max-h-[60vh] custom-scrollbar">
-          {filteredMembers.length === 0 ? (
+          {sortedMembers.length === 0 ? (
             <div className="px-6 py-20 text-center space-y-4">
               <div className="w-16 h-16 bg-on-surface/5 rounded-full flex items-center justify-center mx-auto text-on-surface/20">
                 <Calendar size={32} />
@@ -480,14 +498,14 @@ export function DashboardTab({
                 </p>
               </div>
             </div>
-          ) : filteredMembers.map(m => {
+          ) : sortedMembers.map(m => {
             const isSettled = m.balance === 0 && (m.gamesPlayed > 0 || m.snackHistory?.length > 0);
             return (
               <div
                 key={m.id}
                 onClick={() => setSelectedMember(m)}
                 className={cn(
-                  "w-full grid grid-cols-12 gap-2 px-6 py-4 transition-all text-left group items-center border-none cursor-pointer",
+                  "w-full grid grid-cols-12 gap-3 md:gap-4 px-6 py-5 md:py-6 transition-all text-left group items-center border-none cursor-pointer",
                   isSettled ? "bg-green-500/5 hover:bg-green-500/10" : "hover:bg-primary/5 bg-white"
                 )}
               >
@@ -504,20 +522,44 @@ export function DashboardTab({
                       className="w-4 h-4 rounded border-on-surface/10 text-primary focus:ring-primary/20"
                     />
                   )}
-                  <div className={cn('w-10 h-10 rounded-xl flex items-center justify-center font-black text-sm shrink-0 shadow-sm transition-transform group-hover:scale-105', RANK_COLORS[m.rank])}>
-                    {m.rank}
+                  <div className="relative group/rank shrink-0">
+                    <div className={cn('w-10 h-10 rounded-xl flex items-center justify-center font-black text-sm shadow-sm transition-transform group-hover:scale-105', RANK_COLORS[m.rank])}>
+                      {m.rank}
+                    </div>
+                    {!isReadOnly && (
+                      <select
+                        value={m.rank}
+                        onChange={(e) => {
+                          e.stopPropagation();
+                          onUpdateRank(m.id, e.target.value as Rank);
+                        }}
+                        onClick={e => e.stopPropagation()}
+                        className="absolute inset-0 opacity-0 cursor-pointer w-full h-full"
+                        title="เปลี่ยนระดับมือ"
+                      >
+                        {RANKS.map(r => <option key={r} value={r}>{r} ({RANK_LEVEL_LABELS[r]})</option>)}
+                      </select>
+                    )}
                   </div>
                   <div className="min-w-0 flex-1">
                     <p className={cn("font-bold text-sm truncate transition-colors", isSettled ? "text-green-700" : "group-hover:text-primary")}>
                       {m.name}
                     </p>
                     <div className="flex items-center gap-2">
-                      <span className={cn('text-[9px] font-black px-1.5 py-0.5 rounded-full',
+                      <span className={cn('text-[9px] font-black px-1.5 py-0.5 rounded-full transition-all',
                         isSettled ? 'bg-green-500 text-white' :
                         m.status === 'playing' ? 'bg-green-100 text-green-700' :
                         m.status === 'waiting' ? 'bg-secondary/10 text-secondary' : 'bg-on-surface/5 text-on-surface/30')}>
-                        {isSettled ? '✓ จ่ายแล้ว' : m.status === 'playing' ? '🏸 เล่น' : m.status === 'waiting' ? '⌛ รอ' : '😴 พัก'}
+                        {isSettled ? '✓ จ่ายแล้ว' : m.status === 'playing' ? '🏸 เล่น' : m.status === 'waiting' ? '⌛ รอ' : '😴 พักค้าง'}
                       </span>
+                      {m.status === 'resting' && !isReadOnly && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); onCheckIn(m.id); }}
+                          className="text-[9px] font-black bg-primary text-white px-2 py-0.5 rounded-full hover:scale-105 active:scale-95 transition-transform flex items-center gap-1"
+                        >
+                          <UserPlus size={8} strokeWidth={4} /> เช็คอิน
+                        </button>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -575,9 +617,20 @@ export function DashboardTab({
                   {isSettled ? (
                     <CheckCircle2 size={24} className="text-green-500 ml-auto" />
                   ) : (
-                    <span className={m.balance > 0 ? 'text-error' : 'text-on-surface/10'}>
-                      {m.balance > 0 ? `฿${m.balance.toFixed(0)}` : '✓'}
-                    </span>
+                    <div className="flex items-center justify-end gap-3">
+                      <span className={m.balance > 0 ? 'text-error' : 'text-on-surface/10'}>
+                        {m.balance > 0 ? `฿${m.balance.toFixed(0)}` : '✓'}
+                      </span>
+                      {!isReadOnly && m.balance === 0 && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); if(confirm(`ลบ ${m.name} ออกจากรายการถาวร?`)) onRemove(m.id); }}
+                          className="p-1.5 rounded-lg text-on-surface/20 hover:text-error hover:bg-error/5 transition-all opacity-0 group-hover:opacity-100"
+                          title="ลบสมาชิก"
+                        >
+                          <Trash2 size={16} />
+                        </button>
+                      )}
+                    </div>
                   )}
                 </div>
               </div>

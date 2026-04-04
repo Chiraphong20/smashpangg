@@ -8,15 +8,22 @@ interface Props {
   open: boolean;
   onClose: () => void;
   onAdd: (name: string, rank: Rank) => void;
+  existingNames: string[];
 }
 
-export function AddMemberModal({ open, onClose, onAdd }: Props) {
+export function AddMemberModal({ open, onClose, onAdd, existingNames }: Props) {
   const [name, setName] = useState('');
   const [rank, setRank] = useState<Rank>('P');
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     if (!name.trim()) return;
+    
+    if (existingNames.some(n => n.toLowerCase() === name.trim().toLowerCase())) {
+      alert(`ชื่อ "${name.trim()}" มีอยู่ในรายการแล้วครับ!`);
+      return;
+    }
+
     onAdd(name.trim(), rank);
     setName('');
     setRank('P');
