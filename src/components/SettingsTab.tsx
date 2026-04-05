@@ -22,6 +22,8 @@ interface Props {
   setGoogleSheetUrl: (val: string) => void;
   onSync: () => void;
   isSyncing: boolean;
+  isAutoSync: boolean;
+  setIsAutoSync: (val: boolean) => void;
   onPushCloud: () => void;
   onPullCloud: () => void;
   onSeedMockHistory: () => void;
@@ -35,6 +37,7 @@ export function SettingsTab({
   shuttlePrice, setShuttlePrice,
   googleSheetUrl, setGoogleSheetUrl,
   onSync, isSyncing,
+  isAutoSync, setIsAutoSync,
   onPushCloud, onPullCloud,
   onSeedMockHistory, onResetDay, onFactoryReset,
   rankMemory
@@ -50,6 +53,38 @@ export function SettingsTab({
           <p className="text-xs text-on-surface/40 font-bold uppercase tracking-widest">System Configuration & Maintenance</p>
         </div>
       </div>
+
+      {/* Real-time Sync Toggle */}
+      <section className="bg-primary/5 rounded-[2.5rem] p-8 border border-primary/10 space-y-4">
+        <div className="flex items-center justify-between">
+          <div className="space-y-1">
+            <h3 className="text-sm font-headline font-black text-primary uppercase flex items-center gap-2">
+              <Cloud size={18} />
+              ระบบ Real-time Sync (Beta)
+            </h3>
+            <p className="text-[10px] text-on-surface/60 font-bold max-w-md">
+              เปิดใช้งานการซิงค์ข้อมูลอัตโนมัติระหว่างเครื่อง (ซิงค์ทุก 10 วินาที) ต้องเปิดทั้งสองเครื่องเพื่อใช้งาน
+            </p>
+          </div>
+          <button 
+            onClick={() => setIsAutoSync(!isAutoSync)}
+            className={cn(
+              "w-14 h-8 rounded-full relative transition-all duration-300",
+              isAutoSync ? "bg-primary" : "bg-on-surface/10"
+            )}
+          >
+            <div className={cn(
+              "absolute top-1 w-6 h-6 bg-white rounded-full transition-all duration-300 shadow-sm",
+              isAutoSync ? "left-7" : "left-1"
+            )} />
+          </button>
+        </div>
+        {!googleSheetUrl && (
+          <p className="text-[10px] text-error font-black italic">
+            * ต้องระบุ Script Web App URL ด้านล่างก่อนถึงจะใช้งานได้
+          </p>
+        )}
+      </section>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
         {/* Pricing Section */}

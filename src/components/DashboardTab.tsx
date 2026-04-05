@@ -29,6 +29,9 @@ interface Props {
   onRemove: (memberId: string) => void;
   onResetDay: () => void;
   isSyncing: boolean;
+  isPushing?: boolean;
+  isAutoSync?: boolean;
+  lastSyncTime?: number;
   onImportLine: () => void;
 }
 
@@ -278,7 +281,8 @@ export function DashboardTab({
   onAddSnack, onUpdateShuttles, onUpdateRank, onRemoveSnack, onUpdateSnackPrice, viewingSession, onCloseSession, 
   sessionHistory, onViewSession,
   onProcessPayment, onPullSession,
-  onAddCourt, isSidebarCollapsed, onCheckIn, onRemove, onResetDay, isSyncing, onImportLine
+  onAddCourt, isSidebarCollapsed, onCheckIn, onRemove, onResetDay, 
+  isSyncing, isPushing, isAutoSync, lastSyncTime, onImportLine
 }: Props) {
   const [selectedMember, setSelectedMember] = useState<Member | null>(null);
   const [posTarget, setPosTarget] = useState<Member | null>(null);
@@ -343,12 +347,26 @@ export function DashboardTab({
             <Monitor size={22} />
           </div>
           <div>
-            <h2 className="font-headline font-black text-xl tracking-tight leading-none mb-1">
-              {isReadOnly ? "ประวัติย้อนหลัง" : "Live Monitor"}
-            </h2>
+            <div className="flex items-center gap-2">
+              <h2 className="font-headline font-black text-xl tracking-tight leading-none mb-1">
+                {isReadOnly ? "ประวัติย้อนหลัง" : "Live Monitor"}
+              </h2>
+              {isAutoSync && !isReadOnly && (
+                <div className={cn(
+                  "flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-widest transition-all",
+                  isPushing ? "bg-primary/10 text-primary animate-pulse" : "bg-green-500/10 text-green-500"
+                )}>
+                  <Cloud size={10} />
+                  {isPushing ? "Syncing..." : "Real-time On"}
+                </div>
+              )}
+            </div>
             <p className="text-[9px] font-bold text-on-surface/40 uppercase tracking-widest flex items-center gap-2">
               <span className={cn("w-2 h-2 rounded-full animate-pulse", isReadOnly ? "bg-primary" : "bg-green-500")} />
               {isReadOnly ? `ข้อมูลสรุปของ ${format(viewingSession!.date, 'do MMM yyyy')}` : "กระดานสรุปผลสด (เรียลไทม์)"}
+              {lastSyncTime && !isReadOnly && isAutoSync && (
+                <span className="text-on-surface/20 ml-2 italic">Synced {format(lastSyncTime, 'HH:mm:ss')}</span>
+              )}
             </p>
           </div>
         </div>

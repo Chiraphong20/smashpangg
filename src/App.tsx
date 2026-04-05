@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Users, LayoutDashboard, Trophy, Banknote, UserPlus, Search, ShoppingCart, History, FileText, ChevronLeft, ChevronRight, Menu, Settings } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from './lib/utils';
@@ -61,6 +61,14 @@ export default function App() {
   const [showManageProducts, setShowManageProducts] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [importIsSession, setImportIsSession] = useState(false);
+
+  // Sync state
+  const [isAutoSync, setIsAutoSync] = useState(() => localStorage.getItem('smashit_autosync') === 'active');
+  const [lastSyncTime, setLastSyncTime] = useState(Date.now());
+  const [isPushing, setIsPushing] = useState(false);
+
+  // Use a ref to track if a change was internal (to avoid infinite sync loops)
+  const lastKnownRemoteState = useRef<string>('');
 
   // Load from localStorage
   useEffect(() => {
@@ -138,6 +146,82 @@ export default function App() {
       ? { ...m, status: 'waiting', checkInTime: Date.now() } 
       : m));
   };
+
+  // --- REAL-TIME SYNC LOGIC ---
+  const syncLiveCloud = async (action: 'push_live' | 'pull_live') => {
+    if (!googleSheetUrl || !isAutoSync) return;
+    
+    try {
+      if (action === 'push_live') {
+        setIsPushing(true);
+        const payload = {
+          action: 'push_live',
+          timestamp: Date.now(),
+          data: {
+            members,
+            courts,
+            snacks,
+            paymentHistory,
+            gameHistory,
+            rankMemory,
+            courtFeePerPerson,
+            shuttlePrice
+          }
+        };
+        await fetch(googleSheetUrl, {
+          method: 'POST',
+          mode: 'no-cors',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        setLastSyncTime(Date.now());
+      } else {
+        // pull_live
+        const res = await fetch(`${googleSheetUrl}?action=pull_live`);
+        if (!res.ok) return;
+        const result = await res.json();
+        
+        if (result && result.timestamp > lastSyncTime) {
+          const { data } = result;
+          if (data.members) setMembers(data.members);
+          if (data.courts) setCourts(data.courts);
+          if (data.snacks) setSnacks(data.snacks);
+          if (data.paymentHistory) setPaymentHistory(data.paymentHistory);
+          if (data.gameHistory) setGameHistory(data.gameHistory);
+          if (data.rankMemory) setRankMemory(data.rankMemory);
+          if (data.courtFeePerPerson) setCourtFeePerPerson(data.courtFeePerPerson);
+          if (data.shuttlePrice) setShuttlePrice(data.shuttlePrice);
+          setLastSyncTime(result.timestamp);
+        }
+      }
+    } catch (err) {
+      console.error('Sync error:', err);
+    } finally {
+      setIsPushing(false);
+    }
+  };
+
+  // Auto-Pull Polling (Every 10 seconds)
+  useEffect(() => {
+    if (!isAutoSync || !googleSheetUrl) return;
+    const interval = setInterval(() => {
+      syncLiveCloud('pull_live');
+    }, 10000);
+    return () => clearInterval(interval);
+  }, [isAutoSync, googleSheetUrl, lastSyncTime]);
+
+  // Debounced Auto-Push (Trigger 3s after state changes)
+  useEffect(() => {
+    if (!isAutoSync || !googleSheetUrl) return;
+    
+    const handler = setTimeout(() => {
+      // Only push if we aren't currently pulling or if we detect a local change
+      // For simplicity, we just push every time state stabilizes
+      syncLiveCloud('push_live');
+    }, 3000);
+
+    return () => clearTimeout(handler);
+  }, [members, courts, snacks, paymentHistory, gameHistory, isAutoSync, googleSheetUrl]);
 
   const syncToGoogleSheets = async () => {
     if (!googleSheetUrl) return;
@@ -929,6 +1013,9 @@ export default function App() {
                   onRemove={removeFromSession}
                   onResetDay={resetDay}
                   isSyncing={isSyncing}
+                  isPushing={isPushing}
+                  isAutoSync={isAutoSync}
+                  lastSyncTime={lastSyncTime}
                   onImportLine={() => { setImportIsSession(true); setShowImport(true); }}
                 />
               )}
@@ -980,6 +1067,11 @@ export default function App() {
                 setGoogleSheetUrl={setGoogleSheetUrl}
                 onSync={syncToGoogleSheets}
                 isSyncing={isSyncing}
+                isAutoSync={isAutoSync}
+                setIsAutoSync={(val) => {
+                  setIsAutoSync(val);
+                  localStorage.setItem('smashit_autosync', val ? 'active' : 'inactive');
+                }}
                 onPushCloud={pushMasterData}
                 onPullCloud={pullMasterData}
                 onSeedMockHistory={seedMockHistory}
