@@ -21,6 +21,7 @@ interface Props {
   sessionHistory: SessionRecord[];
   onViewSession: (s: SessionRecord) => void;
   onProcessPayment: (memberId: string, amount: number, method?: string, otherMemberIds?: string[]) => void;
+  onReOpen: (memberId: string) => void;
   onUpdateSnackPrice: (memberId: string, index: number, price: number) => void;
   onPullSession: (date: string) => Promise<any>;
   onAddCourt: () => void;
@@ -39,7 +40,7 @@ interface Props {
 
 
 // Modal showing a player's checkout details (snacks, games, and payment)
-function CheckoutModal({ member, gameHistory, otherMembers, initialOthers = [], onUpdateRank, onRemoveSnack, onUpdateSnackPrice, onPay, isReadOnly, onClose }: {
+function CheckoutModal({ member, gameHistory, otherMembers, initialOthers = [], onUpdateRank, onRemoveSnack, onUpdateSnackPrice, onPay, onReOpen, isReadOnly, onClose }: {
   member: Member;
   gameHistory: GameRecord[];
   otherMembers: Member[];
@@ -48,6 +49,7 @@ function CheckoutModal({ member, gameHistory, otherMembers, initialOthers = [], 
   onRemoveSnack: (memberId: string, snackIndex: number) => void;
   onUpdateSnackPrice: (memberId: string, index: number, price: number) => void;
   onPay: (amount: number, otherMemberIds: string[]) => void;
+  onReOpen: (memberId: string) => void;
   isReadOnly: boolean;
   onClose: () => void;
 }) {
@@ -167,7 +169,8 @@ function CheckoutModal({ member, gameHistory, otherMembers, initialOthers = [], 
                       {!isReadOnly && (
                         <button
                           onClick={() => onRemoveSnack(member.id, idx)}
-                          className="p-1.5 rounded-lg bg-red-500/5 text-red-500/30 hover:bg-red-500 hover:text-white transition-all shadow-sm opacity-0 group-hover/snk:opacity-100"
+                          className="p-1.5 rounded-lg bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white transition-all shadow-sm"
+                          title="ลบรายการน้ำ"
                         >
                           <Trash2 size={12} />
                         </button>
@@ -223,7 +226,6 @@ function CheckoutModal({ member, gameHistory, otherMembers, initialOthers = [], 
           </div>
         </div>
 
-
         {/* Bulk Payment Details label */}
         {!isReadOnly && selectedOthers.length > 0 && (
           <div className="mt-4 px-5 py-4 bg-primary/5 rounded-3xl border border-primary/10">
@@ -240,35 +242,62 @@ function CheckoutModal({ member, gameHistory, otherMembers, initialOthers = [], 
         )}
 
         {/* Footer Checkout */}
-        <div className="mt-8 pt-6 border-t border-on-surface/5 flex items-center justify-between gap-6">
-          <div className="flex-1">
-            <p className="text-[10px] font-black uppercase text-on-surface/30 tracking-widest mb-1">ยอดชำระจริง (แก้ได้)</p>
-            <div className="flex items-baseline gap-1 group">
-              <span className="font-black text-2xl text-error/40 group-focus-within:text-error transition-colors">฿</span>
-              <input 
-                type="number"
-                value={displayAmount}
-                onChange={(e) => setManualAmount(Number(e.target.value))}
-                className="bg-transparent border-none p-0 font-headline font-black text-4xl text-error tracking-tight focus:ring-0 w-full"
-              />
+        <div className="mt-8 pt-6 border-t border-on-surface/5 flex flex-col gap-4">
+          <div className="flex items-center justify-between gap-6">
+            <div className="flex-1">
+              <p className="text-[10px] font-black uppercase text-on-surface/30 tracking-widest mb-1">ยอดเงินที่รับมาจริง</p>
+              <div className="flex items-baseline gap-1 group">
+                <span className="font-black text-2xl text-error/40 group-focus-within:text-error transition-colors">฿</span>
+                <input 
+                  type="number"
+                  value={displayAmount}
+                  onChange={(e) => setManualAmount(Number(e.target.value))}
+                  className="bg-transparent border-none p-0 font-headline font-black text-4xl text-error tracking-tight focus:ring-0 w-full"
+                />
+              </div>
+              {manualAmount !== null && manualAmount !== totalBalance && manualAmount >= 0 && (
+                <p className="text-[9px] font-bold text-primary uppercase mt-1 italic">* ปรับยอดจากเดิม ฿{totalBalance.toFixed(0)}</p>
+              )}
             </div>
-            {manualAmount !== null && manualAmount !== totalBalance && (
-              <p className="text-[9px] font-bold text-primary uppercase mt-1 italic">* ปรับยอดจาก ฿{totalBalance.toFixed(0)}</p>
+            {!isReadOnly && member.status !== 'paid' && displayAmount >= 0 && (
+              <button
+                onClick={() => onPay(displayAmount, selectedOthers)}
+                className="flex-1 max-w-[200px] flex items-center justify-center gap-3 bg-primary text-white py-4 rounded-[1.5rem] font-black text-lg shadow-xl shadow-primary/20 hover:scale-[1.02] active:scale-95 transition-all"
+              >
+                <Banknote size={24} />
+                รับเงิน & ปิดยอด
+              </button>
+            )}
+            {member.status === 'paid' && (
+              <div className="flex flex-col gap-2 flex-1 max-w-[200px]">
+                <div className="flex items-center justify-center gap-2 text-green-500 font-black text-sm px-5 py-3 bg-green-500/10 rounded-2xl">
+                  <CheckCircle2 size={20} />
+                  จ่ายเรียบร้อย
+                </div>
+                {!isReadOnly && (
+                  <button
+                    onClick={() => {
+                      if (confirm('ยืนยันยกเลิกสถานะการจ่ายเงิน เพื่อเปิดยอดใหม่?')) {
+                        onReOpen(member.id);
+                        onClose();
+                      }
+                    }}
+                    className="text-[10px] font-black text-on-surface/40 hover:text-error transition-colors uppercase tracking-widest text-center"
+                  >
+                    เปิดยอดใหม่ / ยกเลิกการจ่าย
+                  </button>
+                )}
+              </div>
             )}
           </div>
-          {!isReadOnly && displayAmount >= 0 && (
-            <button
-              onClick={() => onPay(displayAmount, selectedOthers)}
-              className="flex-1 max-w-[200px] flex items-center justify-center gap-3 bg-primary text-white py-4 rounded-[1.5rem] font-black text-lg shadow-xl shadow-primary/20 hover:scale-[1.02] active:scale-95 transition-all"
-            >
-              <Banknote size={24} />
-              รับเงิน
-            </button>
-          )}
-          {member.balance === 0 && member.gamesPlayed > 0 && (
-            <div className="flex items-center gap-2 text-green-500 font-black text-sm px-5 py-3 bg-green-500/10 rounded-2xl">
-              <CheckCircle2 size={20} />
-              ชำระเงินเรียบร้อย
+          
+          {/* Warning for negative amounts */}
+          {!isReadOnly && displayAmount < 0 && (
+            <div className="bg-red-500/10 border border-red-500/20 p-4 rounded-2xl flex items-center gap-3">
+              <X className="text-red-500 shrink-0" size={18} />
+              <p className="text-[10px] font-bold text-red-600 leading-relaxed uppercase tracking-widest">
+                หากต้องการลดค่าน้ำ ให้กดไอคอนถังขยะ <Trash2 size={10} className="inline mx-0.5" /> ด้านบนแทนการใส่เลขติดลบที่นี่ครับ
+              </p>
             </div>
           )}
         </div>
@@ -281,7 +310,7 @@ export function DashboardTab({
   members, courts, snacks, paymentHistory, gameHistory,
   onAddSnack, onUpdateShuttles, onUpdateRank, onRemoveSnack, onUpdateSnackPrice, viewingSession, onCloseSession, 
   sessionHistory, onViewSession,
-  onProcessPayment, onPullSession,
+  onProcessPayment, onReOpen, onPullSession,
   onAddCourt, isSidebarCollapsed, onCheckIn, onRemove, onResetDay, 
   isSyncing, isPushing, isAutoSync, isSyncError, lastSyncTime, onImportLine
 }: Props) {
@@ -529,7 +558,7 @@ export function DashboardTab({
               </div>
             </div>
           ) : sortedMembers.map(m => {
-            const isSettled = m.balance === 0 && (m.gamesPlayed > 0 || m.snackHistory?.length > 0);
+            const isSettled = m.status === 'paid';
             return (
               <div
                 key={m.id}
@@ -717,6 +746,7 @@ export function DashboardTab({
               setBulkCheckout(null);
               setCheckedIds([]);
             }}
+            onReOpen={onReOpen}
             onClose={() => {
               setSelectedMember(null);
               setBulkCheckout(null);

@@ -822,10 +822,17 @@ export default function App() {
           courtBalance: 0, 
           shuttleBalance: 0, 
           snackBalance: 0, 
-          snackHistory: [],
+          snackHistory: [], 
           shuttleCount: 0,
-          paidCourtFee: true
+          paidCourtFee: true,
+          status: 'paid'
         } : m));
+  };
+
+  const reOpenSession = (memberId: string) => {
+    setMembers(prev => prev.map(m => m.id === memberId 
+      ? { ...m, status: 'waiting', checkInTime: Date.now() } 
+      : m));
   };
 
   const addCourt = (name: string) => {
@@ -1056,6 +1063,7 @@ export default function App() {
                   sessionHistory={sessionHistory}
                   onViewSession={(s) => setViewingSession(s)}
                   onProcessPayment={processPayment}
+                  onReOpen={reOpenSession}
                   onPullSession={pullSessionData}
                   onAddCourt={() => setShowAddCourt(true)}
                   isSidebarCollapsed={isSidebarCollapsed}

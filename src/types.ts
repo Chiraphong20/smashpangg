@@ -11,7 +11,7 @@ export interface Member {
   rank: Rank;
   gamesPlayed: number;
   checkInTime: number;
-  status: 'waiting' | 'playing' | 'resting' | 'away';
+  status: 'waiting' | 'playing' | 'resting' | 'away' | 'paid';
   balance: number;       // รวมทั้งหมด
   courtBalance: number;  // ค่าสนาม
   shuttleBalance: number;// ค่าลูก

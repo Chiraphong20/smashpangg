@@ -110,7 +110,12 @@ export function POSModal({ member, snacks, onAddSnack, onClose }: Props) {
                   placeholder="0"
                   value={customPrice}
                   onChange={e => setCustomPrice(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && handleAddCustom()}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      if (customPrice) handleAddCustom();
+                      else onClose();
+                    }
+                  }}
                   className="w-full pl-5 pr-2 py-2.5 bg-white border-none rounded-xl text-xs font-black focus:ring-2 focus:ring-primary/20 outline-none shadow-sm"
                 />
               </div>
