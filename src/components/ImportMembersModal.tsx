@@ -3,7 +3,6 @@ import { X, FileText, UserPlus, Trash2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { Rank, RANKS, RANK_COLORS, RANK_LEVEL_LABELS } from '../types';
-import { Cloud, CheckCircle2 } from 'lucide-react';
 
 interface ParsedMember {
   id: string;
@@ -14,15 +13,16 @@ interface ParsedMember {
 interface Props {
   open: boolean;
   onClose: () => void;
-  onImport: (members: { name: string; rank: Rank }[]) => void;
+  onImport: (members: { name: string; rank: Rank }[], isSession: boolean) => void;
   rankMemory: Record<string, Rank>;
   existingNames: string[];
+  isSessionMode?: boolean;
 }
 
-// Parse LINE signup text → names
-function parseLine(text: string): string[] {
+// Parse LINE signup text → names & optional ranks
+function parseLine(text: string): { name: string; rank?: Rank }[] {
   const lines = text.split('\n');
-  const names: string[] = [];
+  const results: { name: string; rank?: Rank }[] = [];
 
   for (const line of lines) {
     const trimmed = line.trim();
@@ -30,38 +30,93 @@ function parseLine(text: string): string[] {
 
     // Match "1 ชื่อ", "1. ชื่อ", "1ชื่อ", "- ชื่อ" patterns
     const match = trimmed.match(/^(\d+[\.\):\s-]*)\s*(.+)$/) || trimmed.match(/^([-•*]\s+)(.+)$/);
-    if (match) {
-      let content = match[2].trim();
+    
+    // If no numbered match, try matching directly as name if it doesn't look like a header
+    let content = match ? match[2].trim() : trimmed;
+    
+    // Skip headers like "รายชื่อตีวันนี้" or "สนามแบด"
+    if (!match && (content.includes(':') || content.length > 50)) continue;
+
+    // Look for rank in parentheses or brackets like (S1), [P], (VIP)
+    let detectedRank: Rank | undefined;
+    const rankMatch = content.match(/\((VIP\d?|BG\d?|S-?\d?|P[+-]?)\)/i) || 
+                      content.match(/\[(VIP\d?|BG\d?|S-?\d?|P[+-]??)\]/i) ||
+                      content.match(/\s+(VIP\d?|BG\d?|S-?\d?|P[+-]?)$/i);
+    
+    if (rankMatch) {
+      detectedRank = rankMatch[1].toUpperCase().trim() as Rank;
+      // Clean rank from name
+      content = content.replace(rankMatch[0], '').trim();
+    }
+
+    // Remove trailing time patterns like 17:30, 18.00, 19.30, 19:00, (19:00), 17.30น.
+    content = content.replace(/\s*\(?\d{1,2}[:\.](?:\d{2}|00)\s*(น\.|น|นับ)?\)?.*$/g, '');
+    
+    // Remove parenthesized notes at the end (if not already handled by rank)
+    content = content.replace(/\s*\(.*?\).*$/, '');
+
+    // Remove common Thai suffixes/particles
+    content = content.replace(/\s*(ค่ะ|ครับ|คะ่|นะ|เจ้า).*$/g, '');
+    
+    const finalName = content.trim();
+    if (finalName && isNaN(Number(finalName))) {
+      results.push({ name: finalName, rank: detectedRank });
+    }
+  }
+  return results;
+}
+
+// Parse Master List text → {name, rank}
+function parseMasterList(text: string): { name: string; rank: Rank }[] {
+  const lines = text.split('\n');
+  const results: { name: string; rank: Rank }[] = [];
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+
+    // Pattern: "Name Rank" or "Name, Rank" or "Name\tRank"
+    const parts = trimmed.split(/[\s,\t]+/).filter(Boolean);
+    if (parts.length >= 2) {
+      const lastPart = parts[parts.length - 1].toUpperCase();
+      const rankMatch = lastPart.match(/^(VIP\d?|BG\d?|S-?\d?|P[+-]?)$/);
       
-      // Remove trailing time patterns like 17:30, 18.00, 19:00, (19:00), 17.30น.
-      content = content.replace(/\s*\(?\d{1,2}[:\.]\d{2}\s*(น\.|น|นับ)?\)?.*$/i, '');
-      
-      // Remove parenthesized notes at the end
-      content = content.replace(/\s*\(.*?\).*$/, '');
-      
-      const finalName = content.trim();
-      if (finalName && isNaN(Number(finalName))) {
-        names.push(finalName);
+      if (rankMatch) {
+        const rank = rankMatch[1];
+        const name = parts.slice(0, parts.length - 1).join(' ');
+        results.push({ name, rank: rank as Rank });
       }
     }
   }
-  return names;
+  return results;
 }
 
-export function ImportMembersModal({ open, onClose, onImport, rankMemory, existingNames }: Props) {
+export function ImportMembersModal({ open, onClose, onImport, rankMemory, existingNames, isSessionMode }: Props) {
   const [text, setText] = useState('');
   const [parsed, setParsed] = useState<ParsedMember[]>([]);
   const [step, setStep] = useState<'paste' | 'confirm'>('paste');
+  const [mode, setMode] = useState<'line' | 'master'>(isSessionMode ? 'line' : 'master');
 
   const handleParse = () => {
-    const names = parseLine(text);
-    if (names.length === 0) { alert('ไม่พบรายชื่อ — ลองวางข้อความในรูปแบบ "1 ชื่อ" หรือ "- ชื่อ"'); return; }
-    setParsed(names.map((name, i) => ({ 
-      id: `import-${i}`, 
-      name, 
-      rank: rankMemory[name] || ('P' as Rank) 
-    })));
-    setStep('confirm');
+    if (mode === 'line') {
+      const results = parseLine(text);
+      if (results.length === 0) { alert('ไม่พบรายชื่อ — ลองวางข้อความในรูปแบบ "1 ชื่อ" หรือ "- ชื่อ"'); return; }
+      setParsed(results.map((res, i) => ({ 
+        id: `import-${i}`, 
+        name: res.name, 
+        rank: res.rank || rankMemory[res.name] || ('P' as Rank) 
+      })));
+      setStep('confirm');
+    } else {
+      const results = parseMasterList(text);
+      if (results.length === 0) { alert('ไม่พบข้อมูลรูปเเบบ "ชื่อ ระดับมือ" (ตัวอย่าง: บู S1)'); return; }
+      setParsed(results.map((res, i) => ({ 
+        id: `master-${i}`, 
+        name: res.name, 
+        rank: res.rank
+      })));
+      setStep('confirm');
+    }
   };
 
   const updateRank = (id: string, rank: Rank) => {
@@ -76,19 +131,28 @@ export function ImportMembersModal({ open, onClose, onImport, rankMemory, existi
 
   const handleImport = () => {
     const valid = parsed.filter(p => p.name.trim().length > 0);
-    const existingSet = new Set(existingNames.map(n => n.toLowerCase()));
     
-    const duplicates = valid.filter(p => existingSet.has(p.name.trim().toLowerCase()));
-    const nonDuplicates = valid.filter(p => !existingSet.has(p.name.trim().toLowerCase()));
+    // Check for internal duplicates (clones in the pasted text)
+    const seen = new Set<string>();
+    const internalDuplicates = new Set<string>();
+    valid.forEach(p => {
+      const n = p.name.trim().toLowerCase();
+      if (seen.has(n)) {
+        internalDuplicates.add(p.name.trim());
+      }
+      seen.add(n);
+    });
 
-    if (duplicates.length > 0) {
-      alert(`ข้าม ${duplicates.length} รายชื่อที่มีอยู่แล้วในระบบ: ${duplicates.map(d => d.name).join(', ')}`);
+    if (internalDuplicates.size > 0) {
+      alert(`ตรวจพบชื่อซ้ำในรายการนำเข้า: ${Array.from(internalDuplicates).join(', ')}\nกรุณาแก้ไขชื่อให้ต่างกันก่อนนำเข้าครับ`);
+      return;
     }
 
-    if (nonDuplicates.length > 0) {
-      onImport(nonDuplicates.map(p => ({ name: p.name.trim(), rank: p.rank })));
-    } else if (duplicates.length === 0) {
+    if (valid.length > 0) {
+      onImport(valid.map(p => ({ name: p.name.trim(), rank: p.rank })), isSessionMode || false);
+    } else {
        alert('ไม่พบรายชื่อให้นำเข้า');
+       return;
     }
 
     setText('');
@@ -115,14 +179,25 @@ export function ImportMembersModal({ open, onClose, onImport, rankMemory, existi
 
         {/* Header */}
         <div className="flex items-center gap-4 p-6 border-b border-on-surface/5 shrink-0">
-          <div className="w-12 h-12 bg-primary/10 rounded-2xl flex items-center justify-center">
-            <FileText size={22} className="text-primary" />
+          <div className={cn("w-12 h-12 rounded-2xl flex items-center justify-center", isSessionMode ? "bg-primary/10" : "bg-secondary/10")}>
+            <FileText size={22} className={isSessionMode ? "text-primary" : "text-secondary"} />
           </div>
           <div className="flex-1">
-            <h2 className="font-headline font-black text-xl">นำเข้าจากไลน์</h2>
-            <p className="text-xs text-on-surface/40">
-              {step === 'paste' ? 'วางข้อความการลงชื่อจากไลน์' : `พบ ${parsed.length} รายชื่อ — ตั้งระดับมือแล้วนำเข้า`}
-            </p>
+            <h2 className="font-headline font-black text-xl">
+              {isSessionMode ? 'ลงชื่อร่วมเซสชัน (รายวัน)' : 'เพิ่มสมาชิกเข้าฐานข้อมูล'}
+            </h2>
+            <div className="flex gap-4 mt-1">
+              <button onClick={() => setMode('line')}
+                className={cn("text-[10px] font-black uppercase tracking-widest transition-colors", mode === 'line' ? "text-primary" : "text-on-surface/30")}>
+                จากคิวไลน์
+              </button>
+              { !isSessionMode && (
+                <button onClick={() => setMode('master')}
+                  className={cn("text-[10px] font-black uppercase tracking-widest transition-colors", mode === 'master' ? "text-primary" : "text-on-surface/30")}>
+                  ฐานข้อมูลมือตบ
+                </button>
+              )}
+            </div>
           </div>
           <button onClick={handleClose} className="p-2 rounded-full hover:bg-background"><X size={20} /></button>
         </div>
@@ -133,52 +208,78 @@ export function ImportMembersModal({ open, onClose, onImport, rankMemory, existi
             <>
               {/* Example */}
               <div className="bg-primary/5 rounded-2xl p-4 text-xs space-y-1">
-                <p className="font-black text-primary uppercase tracking-widest text-[10px] mb-2">รูปแบบที่รองรับ</p>
-                <p className="text-on-surface/60 font-mono">1 บิ๊ก</p>
-                <p className="text-on-surface/60 font-mono">2 นง</p>
-                <p className="text-on-surface/60 font-mono">9 พี่ศิ 18.30</p>
-                <p className="text-on-surface/40 mt-2">ระบบจะดึงชื่ออัตโนมัติ แก้ไขได้ก่อนนำเข้า</p>
+                <p className="font-black text-primary uppercase tracking-widest text-[10px] mb-2">
+                  {mode === 'line' ? 'ตัวอย่างรายชื่อที่ระบบรองรับ' : 'ตัวอย่างรูปแบบฐานข้อมูล'}
+                </p>
+                {mode === 'line' ? (
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <p className="text-on-surface/60 font-mono">1. บิ๊ก 17:30</p>
+                      <p className="text-on-surface/60 font-mono">2. โรส ค่ะ (พัก)</p>
+                      <p className="text-on-surface/60 font-mono">3. โย S1</p>
+                    </div>
+                    <div className="text-on-surface/40 italic">
+                      <p>✨ ระบบจะคลีน "ค่ะ", "เวลา", และ "หมายเหตุ" ออกให้อัตโนมัติ</p>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <p className="text-on-surface/60 font-mono">เน็ต S1</p>
+                    <p className="text-on-surface/60 font-mono">น้ำ P</p>
+                    <p className="text-on-surface/60 font-mono">พี่โย VIP2</p>
+                  </>
+                )}
               </div>
               <textarea
                 value={text}
                 onChange={e => setText(e.target.value)}
-                placeholder={'วางข้อความตรงนี้...\n\n1 บิ๊ก\n2 นง\n3 หนุ่ม\n4 ตั้ว\n5 สถิต'}
+                placeholder={mode === 'line' ? 'ก๊อปปี้รายชื่อจากไลน์มาวางที่นี่...' : 'วางชื่อและระดับมือ...'}
                 className="w-full h-72 px-4 py-3 bg-background rounded-2xl text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none"
                 autoFocus
               />
             </>
           ) : (
             <div className="space-y-2">
-              {parsed.map((p, idx) => (
-                <div key={p.id} className="flex items-center gap-3 bg-background rounded-2xl px-4 py-3">
-                  <span className="text-xs font-black text-on-surface/30 w-6 text-center shrink-0">{idx + 1}</span>
-                  {/* Name input */}
-                  <input
-                    value={p.name}
-                    onChange={e => updateName(p.id, e.target.value)}
-                    className="flex-1 bg-transparent font-bold text-sm focus:outline-none min-w-0"
-                  />
-                  {/* Rank selector */}
-                  <div className="grid grid-cols-5 gap-1 shrink-0 overflow-visible">
-                    {RANKS.map(r => (
-                      <button key={r} onClick={() => updateRank(p.id, r)}
-                        title={RANK_LEVEL_LABELS[r]}
-                        className={cn(
-                          'w-7 h-7 rounded-lg text-[9px] font-black transition-all border-2 border-transparent',
-                          p.rank === r
-                            ? RANK_COLORS[r] + ' border-primary shadow-sm scale-110'
-                            : 'bg-on-surface/5 text-on-surface/40 hover:bg-on-surface/10'
-                        )}>
-                        {r}
-                      </button>
-                    ))}
+              {parsed.map((p, idx) => {
+                const isExisting = existingNames.some(n => n.trim().toLowerCase() === p.name.trim().toLowerCase());
+                return (
+                  <div key={p.id} className={cn("flex items-center gap-3 rounded-2xl px-4 py-3 transition-colors", isExisting ? "bg-primary/5" : "bg-background")}>
+                    <span className="text-xs font-black text-on-surface/30 w-6 text-center shrink-0">{idx + 1}</span>
+                    <div className="flex-1 min-w-0">
+                      <input
+                        value={p.name}
+                        onChange={e => updateName(p.id, e.target.value)}
+                        className={cn("w-full bg-transparent font-bold text-sm focus:outline-none truncate", isExisting ? "text-primary" : "text-on-surface")}
+                      />
+                      {isExisting && (
+                        <p className="text-[9px] font-black uppercase text-primary/60 tracking-widest leading-none">สมาชิกเดิมในระบบ ✓</p>
+                      )}
+                      {!isExisting && mode === 'line' && (
+                        <p className="text-[9px] font-black uppercase text-secondary tracking-widest leading-none">สมาชิกใหม่ (เกสต์) 👤</p>
+                      )}
+                    </div>
+                    {/* Rank selector */}
+                    <div className="grid grid-cols-5 gap-1 shrink-0">
+                      {RANKS.map(r => (
+                        <button key={r} onClick={() => updateRank(p.id, r)}
+                          title={RANK_LEVEL_LABELS[r]}
+                          className={cn(
+                            'w-7 h-7 rounded-lg text-[9px] font-black transition-all border-2 border-transparent',
+                            p.rank === r
+                              ? RANK_COLORS[r] + ' border-primary shadow-sm scale-110'
+                              : 'bg-on-surface/5 text-on-surface/40 hover:bg-on-surface/10'
+                          )}>
+                          {r}
+                        </button>
+                      ))}
+                    </div>
+                    <button onClick={() => removeParsed(p.id)}
+                      className="text-on-surface/20 hover:text-error p-1 shrink-0 transition-colors">
+                      <Trash2 size={14} />
+                    </button>
                   </div>
-                  <button onClick={() => removeParsed(p.id)}
-                    className="text-on-surface/20 hover:text-error p-1 shrink-0">
-                    <Trash2 size={14} />
-                  </button>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>

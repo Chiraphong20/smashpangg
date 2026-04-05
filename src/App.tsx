@@ -1,5 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Users, LayoutDashboard, Trophy, Banknote, UserPlus, Search, ShoppingCart, History, FileText, ChevronLeft, ChevronRight, Menu } from 'lucide-react';
+import { Users, LayoutDashboard, Trophy, Banknote, UserPlus, Search, ShoppingCart, History, FileText, ChevronLeft, ChevronRight, Menu, Settings } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from './lib/utils';
 import { Member, Court, Rank, RANKS, RANK_COLORS, Snack, PaymentRecord, GameRecord, DEFAULT_SNACKS, SessionRecord } from './types';
@@ -9,7 +9,7 @@ import confetti from 'canvas-confetti';
 import { DashboardTab } from './components/DashboardTab';
 import { CourtsTab } from './components/CourtsTab';
 import { MembersTab } from './components/MembersTab';
-import { FinanceTab } from './components/FinanceTab';
+import { SettingsTab } from './components/SettingsTab';
 import { AddMemberModal } from './components/AddMemberModal';
 import { AddCourtModal } from './components/AddCourtModal';
 import { ManageProductsModal } from './components/ManageProductsModal';
@@ -17,7 +17,7 @@ import { ImportMembersModal } from './components/ImportMembersModal';
 import { LogsTab } from './components/LogsTab';
 import { RANK_WEIGHTS } from './types';
 
-type Tab = 'dashboard' | 'members' | 'courts' | 'finance' | 'logs';
+type Tab = 'dashboard' | 'members' | 'courts' | 'settings' | 'logs';
 
 const mkMember = (id: string, name: string, rank: Rank, gamesPlayed: number, offset: number): Member => ({
   id, name, rank, gamesPlayed,
@@ -50,10 +50,17 @@ export default function App() {
   const [maxRankFilter, setMaxRankFilter] = useState<Rank>('VIP1');
   const [sessionHistory, setSessionHistory] = useState<SessionRecord[]>([]);
   const [viewingSession, setViewingSession] = useState<SessionRecord | null>(null);
-  const [googleSheetUrl, setGoogleSheetUrl] = useState('https://script.google.com/macros/s/AKfycbwU2qbY_UZy3AQgruvdWkfl8dXrvEfrJQmFWpTiBW5l5NgQBaqfFmiizpJbpqOXjk8/exec');
+  const [googleSheetUrl, setGoogleSheetUrl] = useState('https://script.google.com/macros/s/AKfycbycTfnjCigRi9v22ik0inNDshlkEoXmQVcbwwgwGplDei7Ub3_CJvWQVY4HpiTCM3mQ/exec');
   const [isSyncing, setIsSyncing] = useState(false);
   const [rankMemory, setRankMemory] = useState<Record<string, Rank>>({});
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+
+  // Modal states
+  const [showAddMember, setShowAddMember] = useState(false);
+  const [showAddCourt, setShowAddCourt] = useState(false);
+  const [showManageProducts, setShowManageProducts] = useState(false);
+  const [showImport, setShowImport] = useState(false);
+  const [importIsSession, setImportIsSession] = useState(false);
 
   // Load from localStorage
   useEffect(() => {
@@ -177,12 +184,13 @@ export default function App() {
     }
   };
 
-  const pushMasterData = async () => {
+  const pushMasterData = async (memberList?: Member[]) => {
     if (!googleSheetUrl) return;
     setIsSyncing(true);
     try {
       const payload = {
         action: 'push_master',
+        members: memberList || members,
         rankMemory,
         settings: { courtFeePerPerson, shuttlePrice, googleSheetUrl }
       };
@@ -192,12 +200,18 @@ export default function App() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
-      alert('สำรองข้อมูลสมาชิกและตั้งค่าขึ้น Cloud เรียบร้อยแล้ว!');
+      if (!memberList) alert('สำรองข้อมูลสมาชิกและตั้งค่าขึ้น Cloud เรียบร้อยแล้ว!');
     } catch (err) {
-      alert('ไม่สามารถสำรองข้อมูลได้');
+      if (!memberList) alert('ไม่สามารถสำรองข้อมูลได้');
+      console.error(err);
     } finally {
       setIsSyncing(false);
     }
+  };
+
+  const removeFromSession = (memberId: string) => {
+    setCourts(prev => prev.map(c => ({ ...c, players: c.players.map(p => p === memberId ? null : p) })));
+    setMembers(prev => prev.map(m => m.id === memberId ? { ...m, status: 'resting' } : m));
   };
 
   const pullMasterData = async () => {
@@ -221,6 +235,94 @@ export default function App() {
       setIsSyncing(false);
     }
   };
+
+  const pullSessionData = async (date: string) => {
+    if (!googleSheetUrl) return;
+    setIsSyncing(true);
+    try {
+      const res = await fetch(`${googleSheetUrl}?action=pull_session&date=${date}`);
+      if (!res.ok) throw new Error('Network response was not ok');
+      const data = await res.json();
+      
+      // Handle response that might be from a sheet summary or a full record
+      if (data && (data.date || data.timestamp)) {
+        const timestamp = data.date || new Date(data.timestamp).getTime();
+        
+        // Helper to clean numeric values (remove currency symbols, commas, etc.)
+        const cleanNum = (val: any) => {
+          if (typeof val === 'number') return val;
+          if (!val) return 0;
+          const cleaned = String(val).replace(/[^0-9.-]/g, '');
+          const n = parseFloat(cleaned);
+          return isNaN(n) ? 0 : n;
+        };
+
+        const VALID_RANKS = ['VIP1', 'VIP2', 'VIP3', 'BG1', 'BG2', 'BG3', 'S-1', 'S-2', 'S-3', 'S1', 'S2', 'S3', 'P-', 'P', 'P+'];
+
+        // Reconstruct members from simplified data if necessary
+        const reconstructedMembers: Member[] = (data.membersSnapshot || data.members || [])
+          .filter((m: any) => m.name && VALID_RANKS.includes(String(m.rank).toUpperCase().trim())) // Filter out headers/junk
+          .map((m: any, i: number) => {
+            const rank = String(m.rank).toUpperCase().trim() as Rank;
+            return {
+              id: m.id || `pulled-${date}-${i}`,
+              name: m.name,
+              rank: rank,
+              gamesPlayed: cleanNum(m.gamesPlayed || m.games),
+              checkInTime: timestamp,
+              status: 'resting',
+              balance: cleanNum(m.balance || m.total),
+              courtBalance: cleanNum(m.courtBalance || m.court_fee),
+              shuttleBalance: cleanNum(m.shuttleBalance || m.shuttle_fee),
+              snackBalance: cleanNum(m.snackBalance || m.snack_fee),
+              shuttleCount: cleanNum(m.shuttleCount),
+              snackHistory: m.snackHistory || [],
+              paidCourtFee: m.paidCourtFee || (cleanNum(m.court_fee || m.courtBalance) > 0)
+            };
+          });
+
+        // Reconstruct games
+        const reconstructedGames: GameRecord[] = (data.gameHistory || data.games || [])
+          .filter((g: any) => g.time || g.playedAt) // Filter out junk rows
+          .map((g: any, i: number) => ({
+            id: g.id || `game-${date}-${i}`,
+            courtId: g.courtId || 'c1',
+            courtName: g.courtName || g.court || 'คอร์ด',
+            playedAt: g.playedAt || timestamp,
+            players: g.players && typeof g.players === 'string' 
+              ? g.players.split(',').map((n: string) => ({ id: n.trim(), name: n.trim(), rank: 'P' }))
+              : (g.players || []),
+            shuttlesUsed: cleanNum(g.shuttlesUsed || g.shuttles),
+            shuttleCostPerPerson: cleanNum(g.shuttleCostPerPerson || g.cost_per_person),
+            courtFeePerPerson: cleanNum(g.courtFeePerPerson || 0)
+          }));
+
+        const session: SessionRecord = {
+          id: data.id || `session-${date}`,
+          date: timestamp,
+          membersSnapshot: reconstructedMembers,
+          gameHistory: reconstructedGames,
+          paymentHistory: data.paymentHistory || data.payments || []
+        };
+        
+        setSessionHistory(prev => {
+          const filtered = prev.filter(s => format(s.date, 'yyyy-MM-dd') !== date);
+          return [session, ...filtered];
+        });
+        setViewingSession(session);
+        return session;
+      } else {
+        alert('ไม่พบข้อมูลสำหรับวันที่ ' + date + ' (หรือสคริปต์อาจยังคืนค่าไม่ถูกต้อง)');
+      }
+    } catch (err) {
+      console.error('Pull Session Error:', err);
+      alert('ไม่สามารถดึงข้อมูลได้: โปรดตรวจสอบว่าข้อมูลใน Sheet ของคุณมีอยู่จริงและ URL ถูกต้อง');
+    } finally {
+      setIsSyncing(false);
+    }
+  };
+
+
 
   const seedMockHistory = () => {
     const yesterday = new Date();
@@ -269,10 +371,6 @@ export default function App() {
     localStorage.clear();
     location.reload();
   };
-  const [showAddMember, setShowAddMember] = useState(false);
-  const [showAddCourt, setShowAddCourt] = useState(false);
-  const [showManageProducts, setShowManageProducts] = useState(false);
-  const [showImport, setShowImport] = useState(false);
 
   const getWaitingList = useMemo(() => {
     const minW = RANK_WEIGHTS[minRankFilter] || 0;
@@ -554,6 +652,11 @@ export default function App() {
     }));
   };
 
+  const updateMemberName = (memberId: string, name: string) => {
+    setMembers(prev => prev.map(m => m.id === memberId ? { ...m, name } : m));
+  };
+
+
   const processPayment = (memberId: string, amount: number, method: string = 'Cash', otherMemberIds: string[] = []) => {
     const member = members.find(m => m.id === memberId);
     if (!member) return;
@@ -602,172 +705,233 @@ export default function App() {
     setCourts(prev => prev.filter(c => c.id !== courtId));
   };
 
-  const addMember = (name: string, rank: Rank) => {
+  const addMember = (name: string, rank: Rank, status: Member['status'] = 'resting') => {
     setRankMemory(prev => ({ ...prev, [name]: rank }));
-    setMembers(prev => [...prev, {
+    const newMember: Member = {
       id: Math.random().toString(36).substr(2, 9),
       name, rank, gamesPlayed: 0,
       checkInTime: Date.now(),
-      status: 'waiting',
+      status,
       balance: 0, courtBalance: 0, shuttleBalance: 0, snackBalance: 0,
+      shuttleCount: 0,
       snackHistory: [],
       paidCourtFee: false,
-    }]);
+    };
+    setMembers(prev => {
+      const next = [...prev, newMember];
+      pushMasterData(next);
+      return next;
+    });
     setShowAddMember(false);
   };
 
-  const importMembers = (list: { name: string; rank: Rank }[]) => {
+  const importMembers = (list: { name: string; rank: Rank }[], isSessionImport = false) => {
+    const status: Member['status'] = isSessionImport ? 'waiting' : 'resting';
+    
     setRankMemory(prev => {
       const next = { ...prev };
       list.forEach(item => { next[item.name] = item.rank; });
       return next;
     });
-    const now = Date.now();
-    setMembers(prev => [
-      ...prev,
-      ...list.map((m, i) => ({
-        id: Math.random().toString(36).substr(2, 9),
-        name: m.name, rank: m.rank,
-        gamesPlayed: 0,
-        checkInTime: now + i,
-        status: 'waiting' as const,
-        balance: 0, courtBalance: 0, shuttleBalance: 0, snackBalance: 0,
-        snackHistory: [],
-        paidCourtFee: false,
-      }))
-    ]);
-  };
 
-  const removeMember = (memberId: string) => {
-    setCourts(prev => prev.map(c => ({ ...c, players: c.players.map(p => p === memberId ? null : p) })));
-    setMembers(prev => prev.filter(m => m.id !== memberId));
-  };
-
-  const tabs = [
-    { id: 'dashboard', icon: LayoutDashboard, label: 'ภาพรวม' },
-    { id: 'members', icon: Users, label: 'สมาชิก' },
-    { id: 'courts', icon: Trophy, label: 'คอร์ด' },
-    { id: 'logs', icon: History, label: 'บันทึก' },
-    { id: 'finance', icon: Banknote, label: 'การเงิน' },
-  ];
-
-  return (
-    <div className="min-h-screen bg-background flex flex-col lg:flex-row">
-      {/* Sidebar */}
-      <aside className={cn(
-        "hidden lg:flex flex-col fixed left-0 top-0 h-screen bg-surface-container border-r border-on-surface/5 transition-all duration-300 z-[100]",
-        isSidebarCollapsed ? "w-20 p-2" : "w-64 p-4"
-      )}>
-        <div className={cn("mb-8 flex items-center gap-3 transition-all", isSidebarCollapsed ? "justify-center pt-4" : "px-2 pt-6")}>
-          <div className="w-10 h-10 bg-primary rounded-xl flex items-center justify-center text-white font-black italic text-xl shadow-lg shadow-primary/20 shrink-0">S</div>
-          {!isSidebarCollapsed && (
-            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-              <h4 className="font-headline font-black text-lg text-on-surface tracking-tight">SmashIT</h4>
-              <p className="text-[10px] font-bold text-primary uppercase tracking-widest">Organizer Pro</p>
-            </motion.div>
-          )}
-        </div>
-
-        <nav className="flex-1 space-y-1">
-          {tabs.map(item => (
-            <button key={item.id} onClick={() => setActiveTab(item.id as Tab)}
-              title={isSidebarCollapsed ? item.label : ""}
-              className={cn('w-full flex items-center rounded-xl font-bold transition-all duration-200',
-                isSidebarCollapsed ? "justify-center p-3" : "gap-3 px-4 py-3",
-                activeTab === item.id ? 'bg-white text-primary shadow-sm translate-x-1' : 'text-on-surface/60 hover:text-on-surface hover:bg-white/50')}>
-              <item.icon size={20} className="shrink-0" />
-              {!isSidebarCollapsed && <span>{item.label}</span>}
-            </button>
-          ))}
-        </nav>
-
-        <div className="mt-auto pt-4 border-t border-on-surface/5 space-y-4">
-          {!isSidebarCollapsed ? (
-            <div className="bg-primary/5 p-4 rounded-2xl">
-              <p className="text-[10px] font-black text-primary uppercase mb-1">รายรับวันนี้</p>
-              <p className="text-xl font-headline font-black text-on-surface">
-                ฿{(members.reduce((a, m) => a + m.balance, 0) + paymentHistory.reduce((a, r) => a + r.amount, 0)).toLocaleString()}
-              </p>
-            </div>
-          ) : (
-            <div className="flex justify-center text-primary" title="รายรับวันนี้">
-              <Banknote size={20} />
-            </div>
-          )}
-
-          <button onClick={() => setShowManageProducts(true)}
-            title={isSidebarCollapsed ? "จัดการสินค้า" : ""}
-            className={cn("w-full flex items-center text-primary/80 font-bold hover:bg-primary/5 rounded-xl transition-colors",
-              isSidebarCollapsed ? "justify-center p-3" : "gap-3 px-4 py-3")}>
-            <ShoppingCart size={18} className="shrink-0" />
-            {!isSidebarCollapsed && <span>จัดการสินค้า</span>}
-          </button>
-          
-          <button onClick={() => setShowImport(true)}
-            title={isSidebarCollapsed ? "นำเข้าจากไลน์" : ""}
-            className={cn("w-full flex items-center text-secondary/80 font-bold hover:bg-secondary/5 rounded-xl transition-colors",
-              isSidebarCollapsed ? "justify-center p-3" : "gap-3 px-4 py-3")}>
-            <FileText size={18} className="shrink-0" />
-            {!isSidebarCollapsed && <span>นำเข้าจากไลน์</span>}
-          </button>
-
-          {/* Toggle Button */}
-          <button 
-            onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
-            className="w-full flex items-center justify-center p-3 text-on-surface/20 hover:text-on-surface/60 transition-colors"
-          >
-            {isSidebarCollapsed ? <ChevronRight size={20} /> : <ChevronLeft size={20} />}
-          </button>
-        </div>
-      </aside>
-
-      {/* Main Container */}
-      <div className={cn(
-        "flex-1 transition-all duration-300",
-        isSidebarCollapsed ? "lg:ml-20" : "lg:ml-64"
-      )}>
-        {/* Modals */}
-        <AddMemberModal open={showAddMember} onClose={() => setShowAddMember(false)} onAdd={addMember} existingNames={members.map(m => m.name)} />
-        <AddCourtModal open={showAddCourt} onClose={() => setShowAddCourt(false)} onAdd={addCourt} />
-        <ManageProductsModal open={showManageProducts} onClose={() => setShowManageProducts(false)} snacks={snacks} onSave={setSnacks} />
-        <ImportMembersModal open={showImport} onClose={() => setShowImport(false)} onImport={importMembers} rankMemory={rankMemory} existingNames={members.map(m => m.name)} />
-
-      {/* Main Content Area */}
-      <main className="p-4 md:p-6 court-texture pb-24 lg:pb-6 min-h-screen">
-        <AnimatePresence mode="wait">
-          <motion.div key={activeTab} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.2 }}>
-            {activeTab === 'dashboard' && (
-              <DashboardTab
-                members={members} courts={courts} snacks={snacks}
-                paymentHistory={paymentHistory} gameHistory={gameHistory}
-                courtFeePerPerson={courtFeePerPerson} setCourtFeePerPerson={setCourtFeePerPerson}
-                shuttlePrice={shuttlePrice} setShuttlePrice={setShuttlePrice}
-                onAddSnack={addSnackToMember}
-                onUpdateShuttles={updateMemberShuttles}
-                onUpdateRank={updateMemberRank}
-                onRemoveSnack={removeSnackFromMember}
-                onUpdateSnackPrice={updateSnackPrice}
-                viewingSession={viewingSession}
-                onCloseSession={() => setViewingSession(null)}
-                sessionHistory={sessionHistory}
-                onViewSession={(s) => setViewingSession(s)}
-                googleSheetUrl={googleSheetUrl}
-                setGoogleSheetUrl={setGoogleSheetUrl}
-                onSync={syncToGoogleSheets}
-                isSyncing={isSyncing}
-                onProcessPayment={processPayment}
-                onSeedMockHistory={seedMockHistory}
-                onResetDay={resetDay}
-                onFactoryReset={factoryReset}
-                rankMemory={rankMemory}
-                onPushCloud={pushMasterData}
-                onPullCloud={pullMasterData}
-                onAddCourt={() => setShowAddCourt(true)}
-                isSidebarCollapsed={isSidebarCollapsed}
-                onCheckIn={checkInMember}
-                onRemove={removeMember}
-              />
+    setMembers(prev => {
+      const now = Date.now();
+      const current = [...prev];
+      
+      list.forEach((item, i) => {
+        const existingIndex = current.findIndex(m => m.name.trim().toLowerCase() === item.name.trim().toLowerCase());
+        if (existingIndex !== -1) {
+          // Update details and check-in if it's a session import
+          current[existingIndex] = {
+            ...current[existingIndex],
+            rank: item.rank,
+            status: isSessionImport ? 'waiting' : current[existingIndex].status,
+            checkInTime: isSessionImport ? (now + i) : current[existingIndex].checkInTime
+          };
+        } else {
+          // New member
+            current.push({
+              id: Math.random().toString(36).substr(2, 9),
+              name: item.name, 
+              rank: item.rank,
+              gamesPlayed: 0,
+              checkInTime: now + i,
+              status: status,
+              balance: 0, courtBalance: 0, shuttleBalance: 0, snackBalance: 0,
+              shuttleCount: 0,
+              snackHistory: [],
+              paidCourtFee: false,
+            });
+          }
+        });
+        // Sync to cloud
+        pushMasterData(current);
+        return current;
+      });
+    };
+  
+    const removeMember = (memberId: string) => {
+      if (!confirm('ยืนยันการลบสมาชิกออกจากฐานข้อมูลถาวร? (จะหายไปจาก Cloud ด้วย)')) return;
+      setCourts(prev => prev.map(c => ({ ...c, players: c.players.map(p => p === memberId ? null : p) })));
+      setMembers(prev => {
+        const next = prev.filter(m => m.id !== memberId);
+        pushMasterData(next);
+        return next;
+      });
+    };
+  
+    const bulkCheckIn = (memberIds: string[]) => {
+      setMembers(prev => prev.map(m => memberIds.includes(m.id) ? { ...m, status: 'waiting', checkInTime: Date.now() } : m));
+    };
+  
+    const bulkRemove = (memberIds: string[]) => {
+      if (!confirm(`ยืนยันการลบสมาชิก ${memberIds.length} คนออกจากฐานข้อมูลถาวร? (จะหายไปจาก Cloud ด้วย)`)) return;
+      setCourts(prev => prev.map(c => ({ ...c, players: c.players.map(p => memberIds.includes(p as string) ? null : p) })));
+      setMembers(prev => {
+        const next = prev.filter(m => !memberIds.includes(m.id));
+        pushMasterData(next);
+        return next;
+      });
+    };
+  
+    const bulkUpdateRank = (memberIds: string[], rank: Rank) => {
+      setMembers(prev => {
+        const next = prev.map(m => memberIds.includes(m.id) ? { ...m, rank } : m);
+        pushMasterData(next);
+        return next;
+      });
+      const names = members.filter(m => memberIds.includes(m.id)).map(m => m.name);
+      setRankMemory(prev => {
+        const next = { ...prev };
+        names.forEach(n => next[n] = rank);
+        return next;
+      });
+    };
+  
+    const tabs = [
+      { id: 'dashboard', icon: LayoutDashboard, label: 'ภาพรวม' },
+      { id: 'members', icon: Users, label: 'สมาชิก' },
+      { id: 'courts', icon: Trophy, label: 'คอร์ด' },
+      { id: 'logs', icon: History, label: 'บันทึก' },
+      { id: 'settings', icon: Settings, label: 'ตั้งค่าระบบ' },
+    ];
+  
+    return (
+      <div className="min-h-screen bg-background flex flex-col lg:flex-row">
+        {/* Sidebar */}
+        <aside className={cn(
+          "hidden lg:flex flex-col fixed left-0 top-0 h-screen bg-surface-container border-r border-on-surface/5 transition-all duration-300 z-[100]",
+          isSidebarCollapsed ? "w-20 p-2" : "w-64 p-4"
+        )}>
+          <div className={cn("mb-8 flex items-center gap-3 transition-all", isSidebarCollapsed ? "justify-center pt-4" : "px-2 pt-6")}>
+            <div className="w-10 h-10 bg-primary rounded-xl flex items-center justify-center text-white font-black italic text-xl shadow-lg shadow-primary/20 shrink-0">S</div>
+            {!isSidebarCollapsed && (
+              <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+                <h4 className="font-headline font-black text-lg text-on-surface tracking-tight">SmashIT</h4>
+                <p className="text-[10px] font-bold text-primary uppercase tracking-widest">Organizer Pro</p>
+              </motion.div>
             )}
+          </div>
+  
+          <nav className="flex-1 space-y-1">
+            {tabs.map(item => (
+              <button key={item.id} onClick={() => setActiveTab(item.id as Tab)}
+                title={isSidebarCollapsed ? item.label : ""}
+                className={cn('w-full flex items-center rounded-xl font-bold transition-all duration-200',
+                  isSidebarCollapsed ? "justify-center p-3" : "gap-3 px-4 py-3",
+                  activeTab === item.id ? 'bg-white text-primary shadow-sm translate-x-1' : 'text-on-surface/60 hover:text-on-surface hover:bg-white/50')}>
+                <item.icon size={20} className="shrink-0" />
+                {!isSidebarCollapsed && <span>{item.label}</span>}
+              </button>
+            ))}
+          </nav>
+  
+          <div className="mt-auto pt-4 border-t border-on-surface/5 space-y-4">
+            {!isSidebarCollapsed ? (
+              <div className="bg-primary/5 p-4 rounded-2xl">
+                <p className="text-[10px] font-black text-primary uppercase mb-1">รายรับวันนี้</p>
+                <p className="text-xl font-headline font-black text-on-surface">
+                  ฿{(members.reduce((a, m) => a + m.balance, 0) + paymentHistory.reduce((a, r) => a + r.amount, 0)).toLocaleString()}
+                </p>
+              </div>
+            ) : (
+              <div className="flex justify-center text-primary" title="รายรับวันนี้">
+                <Banknote size={20} />
+              </div>
+            )}
+  
+            <button onClick={() => setShowManageProducts(true)}
+              title={isSidebarCollapsed ? "จัดการสินค้า" : ""}
+              className={cn("w-full flex items-center text-primary/80 font-bold hover:bg-primary/5 rounded-xl transition-colors",
+                isSidebarCollapsed ? "justify-center p-3" : "gap-3 px-4 py-3")}>
+              <ShoppingCart size={18} className="shrink-0" />
+              {!isSidebarCollapsed && <span>จัดการสินค้า</span>}
+            </button>
+            
+            <button onClick={() => setShowImport(true)}
+              title={isSidebarCollapsed ? "นำเข้าจากไลน์" : ""}
+              className={cn("w-full flex items-center text-secondary/80 font-bold hover:bg-secondary/5 rounded-xl transition-colors",
+                isSidebarCollapsed ? "justify-center p-3" : "gap-3 px-4 py-3")}>
+              <FileText size={18} className="shrink-0" />
+              {!isSidebarCollapsed && <span>นำเข้าจากไลน์</span>}
+            </button>
+  
+            {/* Toggle Button */}
+            <button 
+              onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
+              className="w-full flex items-center justify-center p-3 text-on-surface/20 hover:text-on-surface/60 transition-colors"
+            >
+              {isSidebarCollapsed ? <ChevronRight size={20} /> : <ChevronLeft size={20} />}
+            </button>
+          </div>
+        </aside>
+  
+        {/* Main Container */}
+        <div className={cn(
+          "flex-1 transition-all duration-300",
+          isSidebarCollapsed ? "lg:ml-20" : "lg:ml-64"
+        )}>
+          {/* Modals */}
+          <AddMemberModal open={showAddMember} onClose={() => setShowAddMember(false)} onAdd={addMember} existingNames={members.map(m => m.name)} />
+          <AddCourtModal open={showAddCourt} onClose={() => setShowAddCourt(false)} onAdd={addCourt} />
+          <ManageProductsModal open={showManageProducts} onClose={() => setShowManageProducts(false)} snacks={snacks} onSave={setSnacks} />
+          <ImportMembersModal 
+            open={showImport} 
+            onClose={() => setShowImport(false)} 
+            onImport={importMembers} 
+            rankMemory={rankMemory} 
+            existingNames={members.map(m => m.name)} 
+            isSessionMode={importIsSession}
+          />
+  
+        {/* Main Content Area */}
+        <main className="p-4 md:p-6 court-texture pb-24 lg:pb-6 min-h-screen">
+          <AnimatePresence mode="wait">
+            <motion.div key={activeTab} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.2 }}>
+              {activeTab === 'dashboard' && (
+                <DashboardTab
+                  members={members} courts={courts} snacks={snacks}
+                  paymentHistory={paymentHistory} gameHistory={gameHistory}
+                  onAddSnack={addSnackToMember}
+                  onUpdateShuttles={updateMemberShuttles}
+                  onUpdateRank={updateMemberRank}
+                  onRemoveSnack={removeSnackFromMember}
+                  onUpdateSnackPrice={updateSnackPrice}
+                  viewingSession={viewingSession}
+                  onCloseSession={() => setViewingSession(null)}
+                  sessionHistory={sessionHistory}
+                  onViewSession={(s) => setViewingSession(s)}
+                  onProcessPayment={processPayment}
+                  onPullSession={pullSessionData}
+                  onAddCourt={() => setShowAddCourt(true)}
+                  isSidebarCollapsed={isSidebarCollapsed}
+                  onCheckIn={checkInMember}
+                  onRemove={removeFromSession}
+                  onResetDay={resetDay}
+                  isSyncing={isSyncing}
+                  onImportLine={() => { setImportIsSession(true); setShowImport(true); }}
+                />
+              )}
             {activeTab === 'logs' && (
               <LogsTab
                 gameHistory={gameHistory}
@@ -780,12 +944,17 @@ export default function App() {
               <MembersTab
                 members={members}
                 searchQuery={searchQuery}
+                onSearch={setSearchQuery}
                 onRemove={removeMember}
-                onAddMember={() => setShowAddMember(true)}
-                onImportLine={() => setShowImport(true)}
+                onAddMember={() => { setImportIsSession(false); setShowAddMember(true); }}
+                onImportLine={() => { setImportIsSession(false); setShowImport(true); }}
                 onUpdateRank={updateMemberRank}
+                onUpdateName={updateMemberName}
                 onAddCourt={() => setShowAddCourt(true)}
                 onCheckIn={checkInMember}
+                onBulkCheckIn={bulkCheckIn}
+                onBulkRemove={bulkRemove}
+                onBulkUpdateRank={bulkUpdateRank}
               />
             )}
             {activeTab === 'courts' && (
@@ -801,14 +970,22 @@ export default function App() {
                 onAddCourt={() => setShowAddCourt(true)}
               />
             )}
-            {activeTab === 'finance' && (
-              <FinanceTab 
-                members={members} 
-                paymentHistory={paymentHistory} 
-                onMarkAsPaid={(id) => {
-                  const m = members.find(mem => mem.id === id);
-                  if (m) processPayment(id, m.balance);
-                }} 
+            {activeTab === 'settings' && (
+              <SettingsTab
+                courtFeePerPerson={courtFeePerPerson}
+                setCourtFeePerPerson={setCourtFeePerPerson}
+                shuttlePrice={shuttlePrice}
+                setShuttlePrice={setShuttlePrice}
+                googleSheetUrl={googleSheetUrl}
+                setGoogleSheetUrl={setGoogleSheetUrl}
+                onSync={syncToGoogleSheets}
+                isSyncing={isSyncing}
+                onPushCloud={pushMasterData}
+                onPullCloud={pullMasterData}
+                onSeedMockHistory={seedMockHistory}
+                onResetDay={resetDay}
+                onFactoryReset={factoryReset}
+                rankMemory={rankMemory}
               />
             )}
           </motion.div>

@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Trophy, Users, Banknote, TrendingUp, ChevronDown, ChevronUp, X, ShoppingCart, Plus, RefreshCw, Trash2, Clock, Search, Monitor, Calendar, History, CheckCircle2, Cloud, Upload, Download, UserPlus } from 'lucide-react';
+import { Trophy, Users, Banknote, TrendingUp, ChevronDown, ChevronUp, X, ShoppingCart, Plus, RefreshCw, Trash2, Clock, Search, Monitor, Calendar, History, CheckCircle2, Cloud, Upload, Download, UserPlus, FileText } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { Member, Court, PaymentRecord, GameRecord, Snack, Rank, RANKS, RANK_COLORS, RANK_LEVEL_LABELS, SessionRecord } from '../types';
@@ -12,10 +12,6 @@ interface Props {
   snacks: Snack[];
   paymentHistory: PaymentRecord[];
   gameHistory: GameRecord[];
-  courtFeePerPerson: number;
-  setCourtFeePerPerson: (v: number) => void;
-  shuttlePrice: number;
-  setShuttlePrice: (v: number) => void;
   onAddSnack: (memberId: string, snack: Snack) => void;
   onUpdateShuttles: (memberId: string, delta: number) => void;
   onUpdateRank: (memberId: string, rank: Rank) => void;
@@ -24,23 +20,19 @@ interface Props {
   onCloseSession: () => void;
   sessionHistory: SessionRecord[];
   onViewSession: (s: SessionRecord) => void;
-  googleSheetUrl: string;
-  setGoogleSheetUrl: (v: string) => void;
-  onSync: () => Promise<void>;
-  isSyncing: boolean;
   onProcessPayment: (memberId: string, amount: number, method?: string, otherMemberIds?: string[]) => void;
   onUpdateSnackPrice: (memberId: string, index: number, price: number) => void;
-  onSeedMockHistory: () => void;
-  onResetDay: () => void;
-  onFactoryReset: () => void;
-  rankMemory: Record<string, Rank>;
-  onPushCloud: () => Promise<void>;
-  onPullCloud: () => Promise<void>;
+  onPullSession: (date: string) => Promise<any>;
   onAddCourt: () => void;
   isSidebarCollapsed: boolean;
   onCheckIn: (memberId: string) => void;
   onRemove: (memberId: string) => void;
+  onResetDay: () => void;
+  isSyncing: boolean;
+  onImportLine: () => void;
 }
+
+
 
 // Modal showing a player's checkout details (snacks, games, and payment)
 function CheckoutModal({ member, gameHistory, otherMembers, initialOthers = [], onUpdateRank, onRemoveSnack, onUpdateSnackPrice, onPay, isReadOnly, onClose }: {
@@ -283,12 +275,10 @@ function CheckoutModal({ member, gameHistory, otherMembers, initialOthers = [], 
 
 export function DashboardTab({
   members, courts, snacks, paymentHistory, gameHistory,
-  courtFeePerPerson, setCourtFeePerPerson, shuttlePrice, setShuttlePrice,
   onAddSnack, onUpdateShuttles, onUpdateRank, onRemoveSnack, onUpdateSnackPrice, viewingSession, onCloseSession, 
   sessionHistory, onViewSession,
-  googleSheetUrl, setGoogleSheetUrl, onSync, isSyncing, onProcessPayment, onSeedMockHistory,
-  onResetDay, onFactoryReset, rankMemory, onPushCloud, onPullCloud,
-  onAddCourt, isSidebarCollapsed, onCheckIn, onRemove
+  onProcessPayment, onPullSession,
+  onAddCourt, isSidebarCollapsed, onCheckIn, onRemove, onResetDay, isSyncing, onImportLine
 }: Props) {
   const [selectedMember, setSelectedMember] = useState<Member | null>(null);
   const [posTarget, setPosTarget] = useState<Member | null>(null);
@@ -378,8 +368,10 @@ export function DashboardTab({
                   onCloseSession();
                 } else {
                   const s = sessionHistory.find(sh => format(sh.date, 'yyyy-MM-dd') === selected);
-                  if (s) onViewSession(s);
-                  else {
+                  if (s) {
+                    onViewSession(s);
+                  } else {
+                    // Start with an empty view so it's responsive
                     onViewSession({
                       id: `empty-${selected}`,
                       date: new Date(selected).getTime(),
@@ -387,6 +379,8 @@ export function DashboardTab({
                       gameHistory: [],
                       paymentHistory: []
                     });
+                    // Then auto-pull from cloud
+                    onPullSession(selected);
                   }
                 }
               }}
@@ -425,11 +419,11 @@ export function DashboardTab({
       </AnimatePresence>
 
       {/* ── Quick Stats ── */}
-      <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {[
-          { label: 'เล่นอยู่', value: activePlayers, icon: Trophy, color: 'text-primary', bg: 'bg-primary/10' },
-          { label: 'รอในคิว', value: waitingPlayers, icon: Users, color: 'text-secondary', bg: 'bg-secondary/10' },
-          { label: 'คอร์ดใช้งาน', value: `${activeCourts}/${courts.length}`, icon: Banknote, color: 'text-tertiary', bg: 'bg-tertiary/10' },
+          { label: 'รอลำดับ', value: waitingPlayers, icon: Clock, color: 'text-secondary', bg: 'bg-secondary/10' },
+          { label: 'กำลังเล่น', value: activePlayers, icon: Trophy, color: 'text-green-500', bg: 'bg-green-500/10' },
+          { label: 'ลูกค้าวันนี้', value: currentMembers.filter(m => m.status !== 'resting' || m.balance > 0).length, icon: Users, color: 'text-primary', bg: 'bg-primary/10' },
           { label: 'รายรับรวม (฿)', value: (totalPending + totalPaid).toLocaleString(), icon: TrendingUp, color: 'text-error', bg: 'bg-error/10' },
         ].map(s => (
           <div key={s.label} className="bg-white rounded-3xl p-5 shadow-sm border border-on-surface/5">
@@ -444,16 +438,22 @@ export function DashboardTab({
 
       {/* ── Main Player Table ── */}
       <div className="bg-white rounded-3xl shadow-sm border border-on-surface/5 overflow-hidden">
-        <div className="px-6 py-4 border-b border-on-surface/5 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+        <div className="px-6 py-4 border-b border-on-surface/5 flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="flex items-center gap-4">
-            <h2 className="font-headline font-black text-xl">ตารางผู้เล่น</h2>
-            <p className="hidden md:block text-xs text-on-surface/40 font-bold">กดแถวรายการเพื่อคิดเงินหรือดูรายละเอียด</p>
+            <h2 className="font-headline font-black text-xl">ลูกค้าที่เล่นวันนี้</h2>
+            <div className="h-5 w-[2px] bg-on-surface/5 hidden md:block" />
+            <button
+              onClick={onImportLine}
+              className="flex items-center gap-2 bg-primary text-white px-4 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest shadow-lg shadow-primary/20 hover:scale-105 active:scale-95 transition-all"
+            >
+              <FileText size={14} /> ลงชื่อวันนี้ (ก๊อปรายชื่อไลน์)
+            </button>
           </div>
           <div className="relative group flex-1 max-w-xs">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface/30 group-focus-within:text-primary transition-colors" size={14} />
             <input
               type="text"
-              placeholder="ค้นหาชื่อลูกค้า หรือเช็คอินสมาชิกเก่า..."
+              placeholder="ค้นหา หรือ เช็คอินเพิ่ม..."
               value={dbSearch}
               onChange={e => setDbSearch(e.target.value)}
               className="w-full pl-9 pr-4 py-2 bg-background border-none rounded-xl text-xs font-bold focus:ring-2 focus:ring-primary/20 outline-none shadow-sm transition-all"
@@ -493,9 +493,19 @@ export function DashboardTab({
               </div>
               <div>
                 <p className="text-lg font-black text-on-surface/40">วันนี้ไม่ได้มีตีเกม</p>
-                <p className="text-xs text-on-surface/20 font-bold uppercase tracking-widest mt-1">
-                  {isReadOnly ? "ไม่พบประวัติการจองและชำระเงินในห้วงเวลานี้" : "ยังไม่มีข้อมูลผู้เล่นในวันนี้"}
+                <p className="text-xs text-on-surface/20 font-bold uppercase tracking-widest mt-1 mb-6">
+                  {isReadOnly ? "ไม่พบประวัติการจองและชำระเงินในห้วงเวลานี้จากเครื่องนี้" : "ยังไม่มีข้อมูลผู้เล่นในวันนี้"}
                 </p>
+                {isReadOnly && (
+                  <button
+                    onClick={() => onPullSession(format(viewingSession!.date, 'yyyy-MM-dd'))}
+                    disabled={isSyncing}
+                    className="mx-auto flex items-center gap-2 px-6 py-3 bg-secondary text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-secondary/20 hover:scale-105 active:scale-95 transition-all disabled:opacity-50"
+                  >
+                    <Cloud size={16} className={isSyncing ? "animate-pulse" : ""} />
+                    {isSyncing ? "กำลังดึงข้อมูล..." : "ดึงข้อมูลจาก Cloud (Google Sheets)"}
+                  </button>
+                )}
               </div>
             </div>
           ) : sortedMembers.map(m => {
@@ -623,9 +633,9 @@ export function DashboardTab({
                       </span>
                       {!isReadOnly && m.balance === 0 && (
                         <button
-                          onClick={(e) => { e.stopPropagation(); if(confirm(`ลบ ${m.name} ออกจากรายการถาวร?`)) onRemove(m.id); }}
+                          onClick={(e) => { e.stopPropagation(); if(confirm(`ถอนชื่อ ${m.name} ออกจากรายการวันนี้?`)) onRemove(m.id); }}
                           className="p-1.5 rounded-lg text-on-surface/20 hover:text-error hover:bg-error/5 transition-all opacity-0 group-hover:opacity-100"
-                          title="ลบสมาชิก"
+                          title="ถอนชื่อออกจากวันนี้"
                         >
                           <Trash2 size={16} />
                         </button>
@@ -666,125 +676,6 @@ export function DashboardTab({
             <div className="col-span-2 text-right text-error text-2xl font-headline">฿{filteredMembers.reduce((a, m) => a + m.balance, 0).toFixed(0)}</div>
           </div>
         </div>
-      </div>
-
-      {/* ── Settings (collapsible) ── */}
-      <div className="bg-white rounded-[2.5rem] shadow-sm border border-on-surface/5 overflow-hidden">
-        <button
-          onClick={() => setSettingsOpen(v => !v)}
-          className="w-full flex items-center justify-between px-8 py-5 font-headline font-black text-xl hover:bg-background transition-colors"
-        >
-          <span className="flex items-center gap-3"><Banknote size={24} className="text-primary" />ตั้งค่าระบบ</span>
-          {settingsOpen ? <ChevronUp size={22} className="text-on-surface/40" /> : <ChevronDown size={22} className="text-on-surface/40" />}
-        </button>
-        <AnimatePresence>
-          {settingsOpen && (
-            <motion.div initial={{ height: 0 }} animate={{ height: 'auto' }} exit={{ height: 0 }}
-              className="overflow-hidden border-t border-on-surface/5">
-              <div className="p-8 space-y-8">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                  <div className="space-y-3">
-                    <label className="text-[10px] font-black uppercase tracking-widest text-on-surface/40 ml-2">ค่าสนามต่อคน (฿)</label>
-                    <input type="number" value={courtFeePerPerson} onChange={e => setCourtFeePerPerson(Number(e.target.value))}
-                      className="w-full px-6 py-4 bg-background rounded-2xl font-headline font-black text-3xl focus:outline-none focus:ring-4 focus:ring-primary/10 transition-all border-none" />
-                  </div>
-                  <div className="space-y-3">
-                    <label className="text-[10px] font-black uppercase tracking-widest text-on-surface/40 ml-2">ราคาลูกแบด (฿)</label>
-                    <input type="number" value={shuttlePrice} onChange={e => setShuttlePrice(Number(e.target.value))}
-                      className="w-full px-6 py-4 bg-background rounded-2xl font-headline font-black text-3xl focus:outline-none focus:ring-4 focus:ring-primary/10 transition-all border-none" />
-                  </div>
-                </div>
-
-                {/* Google Sheets Sync Settings */}
-                <div className="border-t border-on-surface/5 pt-8 space-y-6">
-                  <h4 className="text-[11px] font-black uppercase tracking-widest text-on-surface/40 flex items-center gap-2">
-                    <History size={16} className="text-secondary" />
-                    Google Sheets Synchronization
-                  </h4>
-                  <div className="grid grid-cols-1 sm:grid-cols-12 gap-4 items-end">
-                    <div className="sm:col-span-9 space-y-3">
-                      <label className="text-[10px] font-black text-on-surface/30 ml-2">Script Web App URL</label>
-                      <input
-                        type="text"
-                        value={googleSheetUrl}
-                        onChange={e => setGoogleSheetUrl(e.target.value)}
-                        placeholder="https://script.google.com/macros/s/.../exec"
-                        className="w-full px-5 py-4 bg-background rounded-2xl text-sm font-bold border-none focus:ring-4 focus:ring-secondary/10 transition-all"
-                      />
-                    </div>
-                    <div className="sm:col-span-3 flex flex-col gap-2">
-                      <button
-                        onClick={onSync}
-                        disabled={!googleSheetUrl || isSyncing}
-                        className={cn(
-                          "w-full flex items-center justify-center gap-2 py-4.5 rounded-2xl font-black text-sm uppercase tracking-widest transition-all",
-                          !googleSheetUrl ? "bg-on-surface/5 text-on-surface/20 cursor-not-allowed" :
-                            isSyncing ? "bg-secondary/20 text-secondary animate-pulse" : "bg-secondary text-white shadow-xl shadow-secondary/10 hover:scale-[1.02] active:scale-95"
-                        )}
-                      >
-                        {isSyncing ? <RefreshCw size={18} className="animate-spin" /> : <TrendingUp size={18} />}
-                        {isSyncing ? "กำลังส่ง..." : "ซิงค์ทันที"}
-                      </button>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Cloud Sync - New Section */}
-                <div className="border-t border-on-surface/5 pt-8 space-y-6">
-                  <h4 className="text-[11px] font-black uppercase tracking-widest text-on-surface/40 flex items-center gap-2">
-                    <Cloud size={16} className="text-primary" />
-                    Multi-Browser Cloud Sync (สำรองข้อมูลมือแบดและการตั้งค่า)
-                  </h4>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                    <button onClick={onPushCloud} disabled={isSyncing}
-                      className="flex items-center justify-between p-5 bg-primary/5 hover:bg-primary/10 rounded-2xl transition-all group border-none">
-                      <div className="text-left">
-                        <p className="text-sm font-black text-primary uppercase">Backup to Cloud</p>
-                        <p className="text-[10px] text-on-surface/40 font-bold italic">อัปโหลดรายชื่อและระดับมือขึ้น Cloud</p>
-                      </div>
-                      <Upload size={20} className="text-primary group-hover:-translate-y-1 transition-all" />
-                    </button>
-                    <button onClick={onPullCloud} disabled={isSyncing}
-                      className="flex items-center justify-between p-5 bg-green-500/5 hover:bg-green-500/10 rounded-2xl transition-all group border-none">
-                      <div className="text-left">
-                        <p className="text-sm font-black text-green-600 uppercase">Restore from Cloud</p>
-                        <p className="text-[10px] text-on-surface/40 font-bold italic">โหลดข้อมูลข้ามเครื่องมาจากเบราว์เซอร์อื่น</p>
-                      </div>
-                      <Download size={20} className="text-green-600 group-hover:translate-y-1 transition-all" />
-                    </button>
-                  </div>
-                </div>
-
-                <div className="border-t border-on-surface/5 pt-8 space-y-6">
-                  <h4 className="text-[11px] font-black uppercase tracking-widest text-on-surface/40 flex items-center gap-2">จัดการวัน</h4>
-                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                    <button onClick={onSeedMockHistory} className="flex items-center justify-between p-5 bg-secondary/5 hover:bg-secondary/10 rounded-2xl transition-all group border-none">
-                      <div className="text-left">
-                        <p className="text-sm font-black text-secondary uppercase">สร้างข้อมูลจำลอง</p>
-                        <p className="text-[10px] text-on-surface/40 font-bold italic">ข้อมูลย้อนหลัง (Yesterday)</p>
-                      </div>
-                      <Plus size={20} className="text-secondary group-hover:scale-125 transition-all" />
-                    </button>
-                    <button onClick={onResetDay} className="flex items-center justify-between p-5 bg-error/5 hover:bg-error/10 rounded-2xl transition-all group border-none">
-                      <div className="text-left">
-                        <p className="text-sm font-black text-error uppercase">เริ่มวันใหม่ (Reset Day)</p>
-                        <p className="text-[10px] text-on-surface/40 font-bold italic">สำรองข้อมูลและเริ่มรอบใหม่</p>
-                      </div>
-                      <RefreshCw size={20} className="text-error group-hover:rotate-180 transition-all duration-500" />
-                    </button>
-                    <button onClick={onFactoryReset} className="flex items-center justify-between p-5 bg-error/5 hover:bg-error/10 rounded-2xl transition-all group border-none text-left">
-                      <div>
-                        <p className="text-sm font-black text-error uppercase">ล้างข้อมูลทั้งหมด</p>
-                        <p className="text-[10px] text-on-surface/40 font-bold italic">ลบสมาชิกออกทั้งหมด</p>
-                      </div>
-                      <Trash2 size={20} className="text-error group-hover:scale-125 transition-all" />
-                    </button>
-                  </div>
-                </div>
-              </div>
-            </motion.div>
-          )}
-        </AnimatePresence>
       </div>
 
       {/* ── Checkout Modal ── */}
