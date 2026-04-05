@@ -31,6 +31,7 @@ interface Props {
   isSyncing: boolean;
   isPushing?: boolean;
   isAutoSync?: boolean;
+  isSyncError?: boolean;
   lastSyncTime?: number;
   onImportLine: () => void;
 }
@@ -282,7 +283,7 @@ export function DashboardTab({
   sessionHistory, onViewSession,
   onProcessPayment, onPullSession,
   onAddCourt, isSidebarCollapsed, onCheckIn, onRemove, onResetDay, 
-  isSyncing, isPushing, isAutoSync, lastSyncTime, onImportLine
+  isSyncing, isPushing, isAutoSync, isSyncError, lastSyncTime, onImportLine
 }: Props) {
   const [selectedMember, setSelectedMember] = useState<Member | null>(null);
   const [posTarget, setPosTarget] = useState<Member | null>(null);
@@ -354,17 +355,18 @@ export function DashboardTab({
               {isAutoSync && !isReadOnly && (
                 <div className={cn(
                   "flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-widest transition-all",
+                  isSyncError ? "bg-error/10 text-error" : 
                   isPushing ? "bg-primary/10 text-primary animate-pulse" : "bg-green-500/10 text-green-500"
                 )}>
                   <Cloud size={10} />
-                  {isPushing ? "Syncing..." : "Real-time On"}
+                  {isSyncError ? "Connection Error" : isPushing ? "Syncing..." : "Real-time On"}
                 </div>
               )}
             </div>
             <p className="text-[9px] font-bold text-on-surface/40 uppercase tracking-widest flex items-center gap-2">
-              <span className={cn("w-2 h-2 rounded-full animate-pulse", isReadOnly ? "bg-primary" : "bg-green-500")} />
+              <span className={cn("w-2 h-2 rounded-full animate-pulse", isReadOnly ? "bg-primary" : isSyncError ? "bg-error" : "bg-green-500")} />
               {isReadOnly ? `ข้อมูลสรุปของ ${format(viewingSession!.date, 'do MMM yyyy')}` : "กระดานสรุปผลสด (เรียลไทม์)"}
-              {lastSyncTime && !isReadOnly && isAutoSync && (
+              {lastSyncTime && !isReadOnly && isAutoSync && !isSyncError && (
                 <span className="text-on-surface/20 ml-2 italic">Synced {format(lastSyncTime, 'HH:mm:ss')}</span>
               )}
             </p>

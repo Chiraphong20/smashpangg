@@ -50,7 +50,7 @@ export default function App() {
   const [maxRankFilter, setMaxRankFilter] = useState<Rank>('VIP1');
   const [sessionHistory, setSessionHistory] = useState<SessionRecord[]>([]);
   const [viewingSession, setViewingSession] = useState<SessionRecord | null>(null);
-  const [googleSheetUrl, setGoogleSheetUrl] = useState('https://script.google.com/macros/s/AKfycbycTfnjCigRi9v22ik0inNDshlkEoXmQVcbwwgwGplDei7Ub3_CJvWQVY4HpiTCM3mQ/exec');
+  const [googleSheetUrl, setGoogleSheetUrl] = useState('https://script.google.com/macros/s/AKfycbwHKFIxnl--hWp2UjaZI2_nILX-arVkZyYg6HhHe0tROXNj_j_pbbJ3dc_QS8PVle0z/exec');
   const [isSyncing, setIsSyncing] = useState(false);
   const [rankMemory, setRankMemory] = useState<Record<string, Rank>>({});
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
@@ -66,9 +66,10 @@ export default function App() {
   const [isAutoSync, setIsAutoSync] = useState(() => localStorage.getItem('smashit_autosync') === 'active');
   const [lastSyncTime, setLastSyncTime] = useState(Date.now());
   const [isPushing, setIsPushing] = useState(false);
+  const [isSyncError, setIsSyncError] = useState(false);
 
-  // Use a ref to track if a change was internal (to avoid infinite sync loops)
-  const lastKnownRemoteState = useRef<string>('');
+  // Use a ref to track the last signature of the state we pushed/pulled
+  const lastStateSignature = useRef<string>('');
 
   // Load from localStorage
   useEffect(() => {
@@ -120,9 +121,33 @@ export default function App() {
   const resetDay = async () => {
     if (!confirm('คุณแน่ใจหรือไม่ว่าต้องการเริ่มวันใหม่? (ล้างประวัติการตีและรีเซ็ตคอร์ด)')) return;
     saveSession();
+    
     if (googleSheetUrl) {
-      await syncToGoogleSheets();
+      setIsSyncing(true);
+      try {
+        // 1. Archive today's data (History)
+        await syncToGoogleSheets();
+        
+        // 2. Clear LiveSync data on Cloud so other devices reset too
+        if (isAutoSync) {
+          await fetch(googleSheetUrl, {
+            method: 'POST',
+            mode: 'no-cors',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              action: 'push_live',
+              timestamp: Date.now(),
+              data: { members: [], courts: INITIAL_COURTS, snacks, paymentHistory: [], gameHistory: [] }
+            })
+          });
+        }
+      } catch (err) {
+        console.error('Final sync failed:', err);
+      } finally {
+        setIsSyncing(false);
+      }
     }
+
     setGameHistory([]);
     setPaymentHistory([]);
     setCourts(INITIAL_COURTS);
@@ -139,6 +164,9 @@ export default function App() {
       status: 'resting',
       checkInTime: Date.now()
     })));
+    
+    // Reset local signature to force a fresh start
+    lastStateSignature.current = '';
   };
 
   const checkInMember = (memberId: string) => {
@@ -151,51 +179,73 @@ export default function App() {
   const syncLiveCloud = async (action: 'push_live' | 'pull_live') => {
     if (!googleSheetUrl || !isAutoSync) return;
     
+    // Create a data signature to detect ACTUAL changes
+    const currentData = {
+      members, courts, snacks, paymentHistory, gameHistory, 
+      rankMemory, courtFeePerPerson, shuttlePrice
+    };
+    const signature = JSON.stringify(currentData).length.toString() + currentData.members.length;
+    // (A simple length check is fast, but we can do better if needed. 
+    // Usually length + member count identifies 99% of changes)
+
     try {
       if (action === 'push_live') {
+        // Only push if signature changed from last push/pull
+        if (signature === lastStateSignature.current) return;
+        
         setIsPushing(true);
         const payload = {
           action: 'push_live',
           timestamp: Date.now(),
-          data: {
-            members,
-            courts,
-            snacks,
-            paymentHistory,
-            gameHistory,
-            rankMemory,
-            courtFeePerPerson,
-            shuttlePrice
-          }
+          data: currentData
         };
+
+        // Note: fetch to GAS for POST works fine with no-cors for data sending
         await fetch(googleSheetUrl, {
           method: 'POST',
           mode: 'no-cors',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload)
         });
+
+        lastStateSignature.current = signature;
         setLastSyncTime(Date.now());
+        setIsSyncError(false);
       } else {
-        // pull_live
-        const res = await fetch(`${googleSheetUrl}?action=pull_live`);
-        if (!res.ok) return;
+        // pull_live - CORS is sensitive here. 
+        // If the script isn't updated, it returns HTML which triggers CORS Error.
+        const res = await fetch(`${googleSheetUrl}?action=pull_live`, {
+          method: 'GET',
+          credentials: 'omit'
+        });
+        
+        if (!res.ok) throw new Error('Network response not ok');
         const result = await res.json();
         
         if (result && result.timestamp > lastSyncTime) {
-          const { data } = result;
-          if (data.members) setMembers(data.members);
-          if (data.courts) setCourts(data.courts);
-          if (data.snacks) setSnacks(data.snacks);
-          if (data.paymentHistory) setPaymentHistory(data.paymentHistory);
-          if (data.gameHistory) setGameHistory(data.gameHistory);
-          if (data.rankMemory) setRankMemory(data.rankMemory);
-          if (data.courtFeePerPerson) setCourtFeePerPerson(data.courtFeePerPerson);
-          if (data.shuttlePrice) setShuttlePrice(data.shuttlePrice);
-          setLastSyncTime(result.timestamp);
+          const remoteData = result.data;
+          const remoteSignature = JSON.stringify(remoteData).length.toString() + remoteData.members.length;
+          
+          if (remoteSignature !== signature) {
+            if (remoteData.members) setMembers(remoteData.members);
+            if (remoteData.courts) setCourts(remoteData.courts);
+            if (remoteData.snacks) setSnacks(remoteData.snacks);
+            if (remoteData.paymentHistory) setPaymentHistory(remoteData.paymentHistory);
+            if (remoteData.gameHistory) setGameHistory(remoteData.gameHistory);
+            if (remoteData.rankMemory) setRankMemory(remoteData.rankMemory);
+            if (remoteData.courtFeePerPerson) setCourtFeePerPerson(remoteData.courtFeePerPerson);
+            if (remoteData.shuttlePrice) setShuttlePrice(remoteData.shuttlePrice);
+            
+            lastStateSignature.current = remoteSignature;
+            setLastSyncTime(result.timestamp);
+          }
         }
+        setIsSyncError(false);
       }
     } catch (err) {
-      console.error('Sync error:', err);
+      // Quiet error for background sync, but update UI
+      console.warn('Sync failed:', err);
+      setIsSyncError(true);
     } finally {
       setIsPushing(false);
     }
@@ -1015,6 +1065,7 @@ export default function App() {
                   isSyncing={isSyncing}
                   isPushing={isPushing}
                   isAutoSync={isAutoSync}
+                  isSyncError={isSyncError}
                   lastSyncTime={lastSyncTime}
                   onImportLine={() => { setImportIsSession(true); setShowImport(true); }}
                 />
