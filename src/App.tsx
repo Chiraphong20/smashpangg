@@ -17,6 +17,8 @@ import { ImportMembersModal } from './components/ImportMembersModal';
 import { LogsTab } from './components/LogsTab';
 import { RANK_WEIGHTS } from './types';
 
+const API_BASE = import.meta.env.VITE_API_URL || '';
+
 type Tab = 'dashboard' | 'members' | 'courts' | 'settings' | 'logs';
 
 const mkMember = (id: string, name: string, rank: Rank, gamesPlayed: number, offset: number): Member => ({
@@ -70,8 +72,8 @@ export default function App() {
       try {
         setIsSyncing(true);
         const [stateRes, masterRes] = await Promise.all([
-          fetch('/api/state').catch(() => null),
-          fetch('/api/master').catch(() => null)
+          fetch(`${API_BASE}/api/state`).catch(() => null),
+          fetch(`${API_BASE}/api/master`).catch(() => null)
         ]);
         
         let loadedState: any = null;
@@ -133,7 +135,7 @@ export default function App() {
       // if (members.length === 0 && isSyncing) return;
       
       try {
-        await fetch('/api/state', {
+        await fetch(`${API_BASE}/api/state`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -159,7 +161,7 @@ export default function App() {
   useEffect(() => {
     const handler = setTimeout(async () => {
       try {
-        await fetch('/api/master', {
+        await fetch(`${API_BASE}/api/master`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -181,7 +183,7 @@ export default function App() {
     // Sync session to the DB
     setIsSyncing(true);
     try {
-      await fetch('/api/sync', {
+      await fetch(`${API_BASE}/api/sync`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -262,7 +264,7 @@ export default function App() {
   const pullSessionData = async (date: string) => {
     setIsSyncing(true);
     try {
-      const res = await fetch(`/api/session?date=${date}`);
+      const res = await fetch(`${API_BASE}/api/session?date=${date}`);
       if (!res.ok) throw new Error('API return error');
       const data = await res.json();
       if (data && data.date) {
