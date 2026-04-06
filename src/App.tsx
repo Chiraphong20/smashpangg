@@ -34,6 +34,8 @@ const INITIAL_COURTS: Court[] = [
   { id: 'c1', name: 'คอร์ด 1', players: [null, null, null, null], status: 'empty', shuttlecocks: 1 },
   { id: 'c2', name: 'คอร์ด 2', players: [null, null, null, null], status: 'empty', shuttlecocks: 1 },
   { id: 'c3', name: 'คอร์ด 3', players: [null, null, null, null], status: 'empty', shuttlecocks: 1 },
+  { id: 'c4', name: 'คอร์ด 4', players: [null, null, null, null], status: 'empty', shuttlecocks: 1 },
+  { id: 'c5', name: 'คอร์ด 5', players: [null, null, null, null], status: 'empty', shuttlecocks: 1 },
 ];
 
 export default function App() {
@@ -50,8 +52,6 @@ export default function App() {
   const [maxRankFilter, setMaxRankFilter] = useState<Rank>('VIP1');
   const [sessionHistory, setSessionHistory] = useState<SessionRecord[]>([]);
   const [viewingSession, setViewingSession] = useState<SessionRecord | null>(null);
-  const [googleSheetUrl, setGoogleSheetUrl] = useState('https://script.google.com/macros/s/AKfycbwHKFIxnl--hWp2UjaZI2_nILX-arVkZyYg6HhHe0tROXNj_j_pbbJ3dc_QS8PVle0z/exec');
-  const [isSyncing, setIsSyncing] = useState(false);
   const [rankMemory, setRankMemory] = useState<Record<string, Rank>>({});
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
 
@@ -61,91 +61,140 @@ export default function App() {
   const [showManageProducts, setShowManageProducts] = useState(false);
   const [showImport, setShowImport] = useState(false);
   const [importIsSession, setImportIsSession] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(false);
+  const [isInitialLoading, setIsInitialLoading] = useState(true);
 
-  // Sync state
-  const [isAutoSync, setIsAutoSync] = useState(() => localStorage.getItem('smashit_autosync') === 'active');
-  const [lastSyncTime, setLastSyncTime] = useState(Date.now());
-  const [isPushing, setIsPushing] = useState(false);
-  const [isSyncError, setIsSyncError] = useState(false);
-
-  // Use a ref to track the last signature of the state we pushed/pulled
-  const lastStateSignature = useRef<string>('');
-
-  // Load from localStorage
+  // Sync to API on startup
   useEffect(() => {
-    const mems = localStorage.getItem('smashit_members');
-    const crts = localStorage.getItem('smashit_courts');
-    const hist = localStorage.getItem('smashit_history');
-    const pays = localStorage.getItem('smashit_payments');
-    const sessions = localStorage.getItem('smashit_sessions');
-    const setting_fee = localStorage.getItem('smashit_fee');
-    const setting_shuttle = localStorage.getItem('smashit_shuttle');
+    (async () => {
+      try {
+        setIsSyncing(true);
+        const [stateRes, masterRes] = await Promise.all([
+          fetch('/api/state').catch(() => null),
+          fetch('/api/master').catch(() => null)
+        ]);
+        
+        let loadedState: any = null;
+        if (stateRes && stateRes.ok) loadedState = await stateRes.json();
+        
+        let loadedMaster: any = null;
+        if (masterRes && masterRes.ok) loadedMaster = await masterRes.json();
 
-    if (mems) {
-      const parsedMembers = JSON.parse(mems);
-      const migratedMembers = parsedMembers.map((m: any) => ({
-        ...m,
-        snackHistory: m.snackHistory || []
-      }));
-      setMembers(migratedMembers);
-    } else {
-      setMembers(INITIAL_MEMBERS);
-    }
+        // 1) Load basic states
+        if (loadedState?.courts) setCourts(loadedState.courts);
+        else setCourts(INITIAL_COURTS);
+        
+        if (loadedState?.gameHistory) setGameHistory(loadedState.gameHistory);
+        if (loadedState?.paymentHistory) setPaymentHistory(loadedState.paymentHistory);
+        if (loadedState?.sessionHistory) setSessionHistory(loadedState.sessionHistory);
+        if (loadedState?.courtFeePerPerson) setCourtFeePerPerson(loadedState.courtFeePerPerson);
+        if (loadedState?.shuttlePrice) setShuttlePrice(loadedState.shuttlePrice);
+        if (loadedState?.snacks && loadedState.snacks.length > 4) {
+          setSnacks(loadedState.snacks);
+        } else {
+          setSnacks(DEFAULT_SNACKS);
+        }
 
-    if (crts) setCourts(JSON.parse(crts));
-    else setCourts(INITIAL_COURTS);
+        // 2) Load and Merge Master <-> State
+        let activeMembers: Member[] = loadedState?.members || [...INITIAL_MEMBERS];
+        let combinedRankMemory = loadedState?.rankMemory || {};
+        
+        if (loadedMaster?.rankMemory) {
+          combinedRankMemory = { ...combinedRankMemory, ...loadedMaster.rankMemory };
+        }
+        
+        if (loadedMaster?.members) {
+          loadedMaster.members.forEach((masterMem: Member) => {
+            combinedRankMemory[masterMem.name] = masterMem.rank;
+            const existing = activeMembers.find(m => m.name.toLowerCase() === masterMem.name.toLowerCase());
+            if (!existing) {
+              activeMembers.push({ ...masterMem, status: 'resting' });
+            }
+          });
+        }
 
-    if (pays) setPaymentHistory(JSON.parse(pays));
-    if (sessions) setSessionHistory(JSON.parse(sessions));
-    const gs_url = localStorage.getItem('smashit_gs_url');
-    const r_mem = localStorage.getItem('smashit_rank_memory');
-    if (gs_url) setGoogleSheetUrl(gs_url);
-    if (r_mem) setRankMemory(JSON.parse(r_mem));
-    if (setting_fee) setCourtFeePerPerson(Number(setting_fee));
-    if (setting_shuttle) setShuttlePrice(Number(setting_shuttle));
+        setMembers(activeMembers);
+        setRankMemory(combinedRankMemory);
+        
+      } catch (err) {
+        console.error('Failed to load initial data from DB:', err);
+      } finally {
+        setIsSyncing(false);
+        // Add a slight artificial delay for the premium feel
+        setTimeout(() => setIsInitialLoading(false), 1200);
+      }
+    })();
   }, []);
 
-  // Save to localStorage
+  // Debounced save EVERYTHING to Database
   useEffect(() => {
-    if (members.length > 0) localStorage.setItem('smashit_members', JSON.stringify(members));
-    if (courts.length > 0) localStorage.setItem('smashit_courts', JSON.stringify(courts));
-    localStorage.setItem('smashit_history', JSON.stringify(gameHistory));
-    localStorage.setItem('smashit_payments', JSON.stringify(paymentHistory));
-    localStorage.setItem('smashit_sessions', JSON.stringify(sessionHistory));
-    localStorage.setItem('smashit_fee', courtFeePerPerson.toString());
-    localStorage.setItem('smashit_shuttle', shuttlePrice.toString());
-    localStorage.setItem('smashit_gs_url', googleSheetUrl);
-    localStorage.setItem('smashit_rank_memory', JSON.stringify(rankMemory));
-  }, [members, courts, gameHistory, paymentHistory, sessionHistory, courtFeePerPerson, shuttlePrice, googleSheetUrl, rankMemory]);
+    const handler = setTimeout(async () => {
+      // Don't save empty states over initial real DB states before API finishes pulling
+      // if (members.length === 0 && isSyncing) return;
+      
+      try {
+        await fetch('/api/state', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            members,
+            courts,
+            gameHistory,
+            paymentHistory,
+            sessionHistory,
+            rankMemory,
+            courtFeePerPerson,
+            shuttlePrice,
+            snacks
+          })
+        });
+      } catch (err) {
+        console.warn('Failed to save state to DB:', err);
+      }
+    }, 2000);
+    return () => clearTimeout(handler);
+  }, [members, courts, gameHistory, paymentHistory, sessionHistory, courtFeePerPerson, shuttlePrice, rankMemory, snacks]);
+
+  // Debounced save MASTER DATA (Permanent members & Settings) to MySQL
+  useEffect(() => {
+    const handler = setTimeout(async () => {
+      try {
+        await fetch('/api/master', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            members: members,
+            settings: { courtFeePerPerson, shuttlePrice }
+          })
+        });
+      } catch (err) {
+        console.warn('Failed to save master data to DB:', err);
+      }
+    }, 5000); // Save master data less frequently
+    return () => clearTimeout(handler);
+  }, [members, courtFeePerPerson, shuttlePrice]);
 
   const resetDay = async () => {
     if (!confirm('คุณแน่ใจหรือไม่ว่าต้องการเริ่มวันใหม่? (ล้างประวัติการตีและรีเซ็ตคอร์ด)')) return;
     saveSession();
     
-    if (googleSheetUrl) {
-      setIsSyncing(true);
-      try {
-        // 1. Archive today's data (History)
-        await syncToGoogleSheets();
-        
-        // 2. Clear LiveSync data on Cloud so other devices reset too
-        if (isAutoSync) {
-          await fetch(googleSheetUrl, {
-            method: 'POST',
-            mode: 'no-cors',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-              action: 'push_live',
-              timestamp: Date.now(),
-              data: { members: [], courts: INITIAL_COURTS, snacks, paymentHistory: [], gameHistory: [] }
-            })
-          });
-        }
-      } catch (err) {
-        console.error('Final sync failed:', err);
-      } finally {
-        setIsSyncing(false);
-      }
+    // Sync session to the DB
+    setIsSyncing(true);
+    try {
+      await fetch('/api/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          timestamp: Date.now(),
+          members: members,
+          games: gameHistory,
+          payments: paymentHistory
+        })
+      });
+    } catch (err) {
+      console.error('Failed to archive session to DB:', err);
+    } finally {
+      setIsSyncing(false);
     }
 
     setGameHistory([]);
@@ -165,8 +214,27 @@ export default function App() {
       checkInTime: Date.now()
     })));
     
-    // Reset local signature to force a fresh start
-    lastStateSignature.current = '';
+  };
+
+  const addMember = (name: string, rank: Rank) => {
+    const existing = members.find(m => m.name.toLowerCase() === name.toLowerCase());
+    
+    // Auto-update rank memory when a member is added manually
+    setRankMemory(prev => ({ ...prev, [name]: rank }));
+
+    if (existing) {
+      if (existing.status === 'waiting') {
+        alert('ผู้เล่นนี้อยู่ในคิวแล้ว!');
+        return;
+      }
+      setMembers(prev => prev.map(m => m.name.toLowerCase() === name.toLowerCase() 
+        ? { ...m, status: 'waiting', checkInTime: Date.now(), rank } 
+        : m
+      ));
+    } else {
+      setMembers(prev => [...prev, mkMember(`m-${Date.now()}`, name, rank, 0, prev.length * 1000)]);
+    }
+    setShowAddMember(false);
   };
 
   const checkInMember = (memberId: string) => {
@@ -175,288 +243,50 @@ export default function App() {
       : m));
   };
 
-  // --- REAL-TIME SYNC LOGIC ---
-  const syncLiveCloud = async (action: 'push_live' | 'pull_live') => {
-    if (!googleSheetUrl || !isAutoSync) return;
-    
-    // Create a data signature to detect ACTUAL changes
-    const currentData = {
-      members, courts, snacks, paymentHistory, gameHistory, 
-      rankMemory, courtFeePerPerson, shuttlePrice
-    };
-    const signature = JSON.stringify(currentData).length.toString() + currentData.members.length;
-    // (A simple length check is fast, but we can do better if needed. 
-    // Usually length + member count identifies 99% of changes)
-
-    try {
-      if (action === 'push_live') {
-        // Only push if signature changed from last push/pull
-        if (signature === lastStateSignature.current) return;
-        
-        setIsPushing(true);
-        const payload = {
-          action: 'push_live',
-          timestamp: Date.now(),
-          data: currentData
-        };
-
-        // Note: fetch to GAS for POST works fine with no-cors for data sending
-        await fetch(googleSheetUrl, {
-          method: 'POST',
-          mode: 'no-cors',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
-        });
-
-        lastStateSignature.current = signature;
-        setLastSyncTime(Date.now());
-        setIsSyncError(false);
-      } else {
-        // pull_live - CORS is sensitive here. 
-        // If the script isn't updated, it returns HTML which triggers CORS Error.
-        const res = await fetch(`${googleSheetUrl}?action=pull_live`, {
-          method: 'GET',
-          credentials: 'omit'
-        });
-        
-        if (!res.ok) throw new Error('Network response not ok');
-        const result = await res.json();
-        
-        if (result && result.timestamp > lastSyncTime) {
-          const remoteData = result.data;
-          const remoteSignature = JSON.stringify(remoteData).length.toString() + remoteData.members.length;
-          
-          if (remoteSignature !== signature) {
-            if (remoteData.members) setMembers(remoteData.members);
-            if (remoteData.courts) setCourts(remoteData.courts);
-            if (remoteData.snacks) setSnacks(remoteData.snacks);
-            if (remoteData.paymentHistory) setPaymentHistory(remoteData.paymentHistory);
-            if (remoteData.gameHistory) setGameHistory(remoteData.gameHistory);
-            if (remoteData.rankMemory) setRankMemory(remoteData.rankMemory);
-            if (remoteData.courtFeePerPerson) setCourtFeePerPerson(remoteData.courtFeePerPerson);
-            if (remoteData.shuttlePrice) setShuttlePrice(remoteData.shuttlePrice);
-            
-            lastStateSignature.current = remoteSignature;
-            setLastSyncTime(result.timestamp);
-          }
-        }
-        setIsSyncError(false);
-      }
-    } catch (err) {
-      // Quiet error for background sync, but update UI
-      console.warn('Sync failed:', err);
-      setIsSyncError(true);
-    } finally {
-      setIsPushing(false);
-    }
-  };
-
-  // Auto-Pull Polling (Every 10 seconds)
-  useEffect(() => {
-    if (!isAutoSync || !googleSheetUrl) return;
-    const interval = setInterval(() => {
-      syncLiveCloud('pull_live');
-    }, 10000);
-    return () => clearInterval(interval);
-  }, [isAutoSync, googleSheetUrl, lastSyncTime]);
-
-  // Debounced Auto-Push (Trigger 3s after state changes)
-  useEffect(() => {
-    if (!isAutoSync || !googleSheetUrl) return;
-    
-    const handler = setTimeout(() => {
-      // Only push if we aren't currently pulling or if we detect a local change
-      // For simplicity, we just push every time state stabilizes
-      syncLiveCloud('push_live');
-    }, 3000);
-
-    return () => clearTimeout(handler);
-  }, [members, courts, snacks, paymentHistory, gameHistory, isAutoSync, googleSheetUrl]);
-
-  const syncToGoogleSheets = async () => {
-    if (!googleSheetUrl) return;
-    setIsSyncing(true);
-    try {
-      const payload = {
-        timestamp: new Date().toISOString(),
-        members: members.map(m => ({
-          name: m.name,
-          rank: m.rank,
-          games: m.gamesPlayed,
-          court_fee: m.courtBalance,
-          shuttle_fee: m.shuttleBalance,
-          snack_fee: m.snackBalance,
-          total: m.balance
-        })),
-        games: gameHistory.map(g => ({
-          time: format(g.playedAt, 'HH:mm'),
-          court: g.courtName,
-          players: g.players.map(p => p.name).join(', '),
-          shuttles: g.shuttlesUsed,
-          cost_per_person: g.shuttleCostPerPerson
-        })),
-        payments: paymentHistory.map(p => ({
-          time: format(p.timestamp, 'HH:mm'),
-          member: p.memberName,
-          amount: p.amount,
-          method: p.method
-        }))
-      };
-
-      await fetch(googleSheetUrl, {
-        method: 'POST',
-        mode: 'no-cors',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-      // Note: no-cors means we can't read the response, but it usually succeeds
-    } catch (err) {
-      console.error('GS Sync Error:', err);
-      alert('ไม่สามารถส่งข้อมูลไปยัง Google Sheets ได้ โปรดตรวจสอบ Script URL');
-    } finally {
-      setIsSyncing(false);
-    }
-  };
-
-  const pushMasterData = async (memberList?: Member[]) => {
-    if (!googleSheetUrl) return;
-    setIsSyncing(true);
-    try {
-      const payload = {
-        action: 'push_master',
-        members: memberList || members,
-        rankMemory,
-        settings: { courtFeePerPerson, shuttlePrice, googleSheetUrl }
-      };
-      await fetch(googleSheetUrl, {
-        method: 'POST',
-        mode: 'no-cors',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-      if (!memberList) alert('สำรองข้อมูลสมาชิกและตั้งค่าขึ้น Cloud เรียบร้อยแล้ว!');
-    } catch (err) {
-      if (!memberList) alert('ไม่สามารถสำรองข้อมูลได้');
-      console.error(err);
-    } finally {
-      setIsSyncing(false);
-    }
-  };
-
   const removeFromSession = (memberId: string) => {
     setCourts(prev => prev.map(c => ({ ...c, players: c.players.map(p => p === memberId ? null : p) })));
-    setMembers(prev => prev.map(m => m.id === memberId ? { ...m, status: 'resting' } : m));
-  };
-
-  const pullMasterData = async () => {
-    if (!googleSheetUrl) return;
-    setIsSyncing(true);
-    try {
-      // For Apps Script, we often need to use JSONP or specific URL params for GET
-      // to avoid CORS preflight issues during development if not properly configured.
-      const res = await fetch(`${googleSheetUrl}?action=pull_master`);
-      const data = await res.json();
-      if (data.rankMemory) setRankMemory(data.rankMemory);
-      if (data.settings) {
-        if (data.settings.courtFeePerPerson) setCourtFeePerPerson(data.settings.courtFeePerPerson);
-        if (data.settings.shuttlePrice) setShuttlePrice(data.settings.shuttlePrice);
-      }
-      alert('โหลดข้อมูลจาก Cloud เรียบร้อย!');
-    } catch (err) {
-      console.error(err);
-      alert('ไม่สามารถโหลดข้อมูลจาก Cloud ได้ (ตรวจสอบว่าคุณได้อัปเดตสคริปต์ใน Google Sheets หรือยัง)');
-    } finally {
-      setIsSyncing(false);
-    }
+    setMembers(prev => prev.map(m => m.id === memberId ? { 
+      ...m, 
+      status: 'resting',
+      gamesPlayed: 0,
+      balance: 0,
+      courtBalance: 0,
+      shuttleBalance: 0,
+      shuttleCount: 0,
+      snackBalance: 0,
+      snackHistory: [],
+      paidCourtFee: false
+    } : m));
   };
 
   const pullSessionData = async (date: string) => {
-    if (!googleSheetUrl) return;
     setIsSyncing(true);
     try {
-      const res = await fetch(`${googleSheetUrl}?action=pull_session&date=${date}`);
-      if (!res.ok) throw new Error('Network response was not ok');
+      const res = await fetch(`/api/session?date=${date}`);
+      if (!res.ok) throw new Error('API return error');
       const data = await res.json();
-      
-      // Handle response that might be from a sheet summary or a full record
-      if (data && (data.date || data.timestamp)) {
-        const timestamp = data.date || new Date(data.timestamp).getTime();
-        
-        // Helper to clean numeric values (remove currency symbols, commas, etc.)
-        const cleanNum = (val: any) => {
-          if (typeof val === 'number') return val;
-          if (!val) return 0;
-          const cleaned = String(val).replace(/[^0-9.-]/g, '');
-          const n = parseFloat(cleaned);
-          return isNaN(n) ? 0 : n;
-        };
-
-        const VALID_RANKS = ['VIP1', 'VIP2', 'VIP3', 'BG1', 'BG2', 'BG3', 'S-1', 'S-2', 'S-3', 'S1', 'S2', 'S3', 'P-', 'P', 'P+'];
-
-        // Reconstruct members from simplified data if necessary
-        const reconstructedMembers: Member[] = (data.membersSnapshot || data.members || [])
-          .filter((m: any) => m.name && VALID_RANKS.includes(String(m.rank).toUpperCase().trim())) // Filter out headers/junk
-          .map((m: any, i: number) => {
-            const rank = String(m.rank).toUpperCase().trim() as Rank;
-            return {
-              id: m.id || `pulled-${date}-${i}`,
-              name: m.name,
-              rank: rank,
-              gamesPlayed: cleanNum(m.gamesPlayed || m.games),
-              checkInTime: timestamp,
-              status: 'resting',
-              balance: cleanNum(m.balance || m.total),
-              courtBalance: cleanNum(m.courtBalance || m.court_fee),
-              shuttleBalance: cleanNum(m.shuttleBalance || m.shuttle_fee),
-              snackBalance: cleanNum(m.snackBalance || m.snack_fee),
-              shuttleCount: cleanNum(m.shuttleCount),
-              snackHistory: m.snackHistory || [],
-              paidCourtFee: m.paidCourtFee || (cleanNum(m.court_fee || m.courtBalance) > 0)
-            };
-          });
-
-        // Reconstruct games
-        const reconstructedGames: GameRecord[] = (data.gameHistory || data.games || [])
-          .filter((g: any) => g.time || g.playedAt) // Filter out junk rows
-          .map((g: any, i: number) => ({
-            id: g.id || `game-${date}-${i}`,
-            courtId: g.courtId || 'c1',
-            courtName: g.courtName || g.court || 'คอร์ด',
-            playedAt: g.playedAt || timestamp,
-            players: g.players && typeof g.players === 'string' 
-              ? g.players.split(',').map((n: string) => ({ id: n.trim(), name: n.trim(), rank: 'P' }))
-              : (g.players || []),
-            shuttlesUsed: cleanNum(g.shuttlesUsed || g.shuttles),
-            shuttleCostPerPerson: cleanNum(g.shuttleCostPerPerson || g.cost_per_person),
-            courtFeePerPerson: cleanNum(g.courtFeePerPerson || 0)
-          }));
-
+      if (data && data.date) {
         const session: SessionRecord = {
-          id: data.id || `session-${date}`,
-          date: timestamp,
-          membersSnapshot: reconstructedMembers,
-          gameHistory: reconstructedGames,
-          paymentHistory: data.paymentHistory || data.payments || []
+          id: data.id,
+          date: data.date,
+          membersSnapshot: data.membersSnapshot || [],
+          gameHistory: data.gameHistory || [],
+          paymentHistory: data.paymentHistory || []
         };
-        
         setSessionHistory(prev => {
           const filtered = prev.filter(s => format(s.date, 'yyyy-MM-dd') !== date);
           return [session, ...filtered];
         });
         setViewingSession(session);
         return session;
-      } else {
-        alert('ไม่พบข้อมูลสำหรับวันที่ ' + date + ' (หรือสคริปต์อาจยังคืนค่าไม่ถูกต้อง)');
       }
     } catch (err) {
       console.error('Pull Session Error:', err);
-      alert('ไม่สามารถดึงข้อมูลได้: โปรดตรวจสอบว่าข้อมูลใน Sheet ของคุณมีอยู่จริงและ URL ถูกต้อง');
+      alert('ไม่สามารถดึงข้อมูลประวัติจากฐานข้อมูลได้');
     } finally {
       setIsSyncing(false);
     }
   };
-
-
 
   const seedMockHistory = () => {
     const yesterday = new Date();
@@ -660,6 +490,19 @@ export default function App() {
     setMembers(prev => prev.map(m => m.id === playerId ? { ...m, status: 'playing' } : m));
   };
 
+  const addSnacksToMember = (memberId: string, addedSnacks: Snack[]) => {
+    if (addedSnacks.length === 0) return;
+    const totalExtraBalance = addedSnacks.reduce((sum, s) => sum + s.price, 0);
+    const historyEntries = addedSnacks.map(s => ({ ...s, time: Date.now() }));
+
+    setMembers(prev => prev.map(m => m.id === memberId ? {
+      ...m,
+      balance: m.balance + totalExtraBalance,
+      snackBalance: m.snackBalance + totalExtraBalance,
+      snackHistory: [...(m.snackHistory || []), ...historyEntries]
+    } : m));
+  };
+
   const addSnackToMember = (memberId: string, snack: Snack) => {
     setMembers(prev => prev.map(m => m.id === memberId
       ? {
@@ -799,9 +642,13 @@ export default function App() {
     const otherMembers = members.filter(m => otherMemberIds.includes(m.id));
     const otherNames = otherMembers.map(m => m.name).join(', ');
     
+    // Check if partial
+    const totalDebt = member.balance + otherMembers.reduce((sum, m) => sum + m.balance, 0);
+    const isFullPayment = amount >= totalDebt;
+    
     const note = otherMemberIds.length > 0 
-      ? `จ่ายรวม: ${otherNames}` 
-      : `${member.gamesPlayed} เกม`;
+      ? `จ่ายรวม${isFullPayment ? '' : ' (บางส่วน)'}: ${otherNames}` 
+      : `${member.gamesPlayed} เกม${isFullPayment ? '' : ' (จ่ายบางส่วน)'}`;
 
     const record: PaymentRecord = {
       id: Math.random().toString(36).substr(2, 9),
@@ -815,18 +662,52 @@ export default function App() {
     };
 
     setPaymentHistory(prev => [record, ...prev]);
-    setMembers(prev => prev.map(m => allMemberIds.includes(m.id)
-      ? { 
-          ...m, 
-          balance: 0, 
-          courtBalance: 0, 
-          shuttleBalance: 0, 
-          snackBalance: 0, 
-          snackHistory: [], 
-          shuttleCount: 0,
-          paidCourtFee: true,
-          status: 'paid'
-        } : m));
+
+    setMembers(prev => {
+      let remainingPayment = amount;
+      const next = [...prev];
+      
+      for (const id of allMemberIds) {
+        const idx = next.findIndex(m => m.id === id);
+        if (idx === -1) continue;
+        const m = { ...next[idx] };
+        
+        if (remainingPayment <= 0) break;
+
+        const debtToClear = Math.min(m.balance, remainingPayment);
+        m.balance -= debtToClear;
+        remainingPayment -= debtToClear;
+
+        if (m.balance <= 0) {
+          m.balance = 0;
+          m.courtBalance = 0;
+          m.shuttleBalance = 0;
+          m.snackBalance = 0;
+          m.snackHistory = [];
+          m.shuttleCount = 0;
+          m.paidCourtFee = true;
+          m.status = 'paid';
+        } else {
+          // Adjust granular balances down
+          let leftToClear = debtToClear;
+          
+          const snackClear = Math.min(m.snackBalance, leftToClear);
+          m.snackBalance -= snackClear;
+          leftToClear -= snackClear;
+          
+          const courtClear = Math.min(m.courtBalance, leftToClear);
+          m.courtBalance -= courtClear;
+          leftToClear -= courtClear;
+          
+          const shuttleClear = Math.min(m.shuttleBalance, leftToClear);
+          m.shuttleBalance -= shuttleClear;
+          leftToClear -= shuttleClear;
+        }
+        
+        next[idx] = m;
+      }
+      return next;
+    });
   };
 
   const reOpenSession = (memberId: string) => {
@@ -846,25 +727,7 @@ export default function App() {
     setCourts(prev => prev.filter(c => c.id !== courtId));
   };
 
-  const addMember = (name: string, rank: Rank, status: Member['status'] = 'resting') => {
-    setRankMemory(prev => ({ ...prev, [name]: rank }));
-    const newMember: Member = {
-      id: Math.random().toString(36).substr(2, 9),
-      name, rank, gamesPlayed: 0,
-      checkInTime: Date.now(),
-      status,
-      balance: 0, courtBalance: 0, shuttleBalance: 0, snackBalance: 0,
-      shuttleCount: 0,
-      snackHistory: [],
-      paidCourtFee: false,
-    };
-    setMembers(prev => {
-      const next = [...prev, newMember];
-      pushMasterData(next);
-      return next;
-    });
-    setShowAddMember(false);
-  };
+
 
   const importMembers = (list: { name: string; rank: Rank }[], isSessionImport = false) => {
     const status: Member['status'] = isSessionImport ? 'waiting' : 'resting';
@@ -905,8 +768,7 @@ export default function App() {
             });
           }
         });
-        // Sync to cloud
-        pushMasterData(current);
+        // Sync to cloud removed
         return current;
       });
     };
@@ -916,7 +778,6 @@ export default function App() {
       setCourts(prev => prev.map(c => ({ ...c, players: c.players.map(p => p === memberId ? null : p) })));
       setMembers(prev => {
         const next = prev.filter(m => m.id !== memberId);
-        pushMasterData(next);
         return next;
       });
     };
@@ -930,7 +791,6 @@ export default function App() {
       setCourts(prev => prev.map(c => ({ ...c, players: c.players.map(p => memberIds.includes(p as string) ? null : p) })));
       setMembers(prev => {
         const next = prev.filter(m => !memberIds.includes(m.id));
-        pushMasterData(next);
         return next;
       });
     };
@@ -938,7 +798,6 @@ export default function App() {
     const bulkUpdateRank = (memberIds: string[], rank: Rank) => {
       setMembers(prev => {
         const next = prev.map(m => memberIds.includes(m.id) ? { ...m, rank } : m);
-        pushMasterData(next);
         return next;
       });
       const names = members.filter(m => memberIds.includes(m.id)).map(m => m.name);
@@ -958,6 +817,11 @@ export default function App() {
     ];
   
     return (
+      <>
+      <AnimatePresence>
+        {isInitialLoading && <SplashScreen key="splash" />}
+      </AnimatePresence>
+
       <div className="min-h-screen bg-background flex flex-col lg:flex-row">
         {/* Sidebar */}
         <aside className={cn(
@@ -1017,7 +881,21 @@ export default function App() {
               {!isSidebarCollapsed && <span>นำเข้าจากไลน์</span>}
             </button>
   
-            {/* Toggle Button */}
+            {/* Cloud Status Indicator */}
+            <div className="px-5 pb-6">
+              <div className="flex items-center gap-3">
+                <div className="relative flex items-center justify-center">
+                  <div className={cn("w-2.5 h-2.5 rounded-full transition-all duration-500", isSyncing ? "bg-primary animate-pulse scale-110 shadow-[0_0_12px_rgba(var(--primary-rgb),0.6)]" : "bg-green-500 shadow-[0_0_8px_rgba(22,163,74,0.4)]")} />
+                  {isSyncing && <div className="absolute inset-0 w-2.5 h-2.5 rounded-full bg-primary animate-ping opacity-40" />}
+                </div>
+                {!isSidebarCollapsed && (
+                   <span className={cn("text-[9px] font-black uppercase tracking-[0.2em] transition-colors duration-300", isSyncing ? "text-primary italic" : "text-on-surface/30")}>
+                     {isSyncing ? "Cloud Synchronizing..." : "DB Connected & Synced"}
+                   </span>
+                )}
+              </div>
+            </div>
+
             <button 
               onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
               className="w-full flex items-center justify-center p-3 text-on-surface/20 hover:text-on-surface/60 transition-colors"
@@ -1033,7 +911,13 @@ export default function App() {
           isSidebarCollapsed ? "lg:ml-20" : "lg:ml-64"
         )}>
           {/* Modals */}
-          <AddMemberModal open={showAddMember} onClose={() => setShowAddMember(false)} onAdd={addMember} existingNames={members.map(m => m.name)} />
+          <AddMemberModal 
+            open={showAddMember} 
+            onClose={() => setShowAddMember(false)} 
+            onAdd={addMember} 
+            existingNames={members.map(m => m.name)} 
+            rankMemory={rankMemory} 
+          />
           <AddCourtModal open={showAddCourt} onClose={() => setShowAddCourt(false)} onAdd={addCourt} />
           <ManageProductsModal open={showManageProducts} onClose={() => setShowManageProducts(false)} snacks={snacks} onSave={setSnacks} />
           <ImportMembersModal 
@@ -1053,7 +937,6 @@ export default function App() {
                 <DashboardTab
                   members={members} courts={courts} snacks={snacks}
                   paymentHistory={paymentHistory} gameHistory={gameHistory}
-                  onAddSnack={addSnackToMember}
                   onUpdateShuttles={updateMemberShuttles}
                   onUpdateRank={updateMemberRank}
                   onRemoveSnack={removeSnackFromMember}
@@ -1065,16 +948,13 @@ export default function App() {
                   onProcessPayment={processPayment}
                   onReOpen={reOpenSession}
                   onPullSession={pullSessionData}
+                  isSyncing={isSyncing}
                   onAddCourt={() => setShowAddCourt(true)}
                   isSidebarCollapsed={isSidebarCollapsed}
                   onCheckIn={checkInMember}
                   onRemove={removeFromSession}
                   onResetDay={resetDay}
-                  isSyncing={isSyncing}
-                  isPushing={isPushing}
-                  isAutoSync={isAutoSync}
-                  isSyncError={isSyncError}
-                  lastSyncTime={lastSyncTime}
+                  onAddSnack={addSnacksToMember}
                   onImportLine={() => { setImportIsSession(true); setShowImport(true); }}
                 />
               )}
@@ -1109,7 +989,7 @@ export default function App() {
                 searchQuery={searchQuery} gameHistory={gameHistory}
                 onAutoMatch={autoMatch} onStartGame={startGame} onResetCourt={resetCourt}
                 onRemovePlayer={removePlayerFromCourt} onAddPlayer={addPlayerToCourt}
-                onDeleteCourt={deleteCourt} onAddSnack={addSnackToMember}
+                onDeleteCourt={deleteCourt} onAddSnack={addSnacksToMember}
                 onEditGame={editGame} onUndoGame={undoGame} onUpdateCourt={setCourts}
                 minRankFilter={minRankFilter} setMinRankFilter={setMinRankFilter}
                 maxRankFilter={maxRankFilter} setMaxRankFilter={setMaxRankFilter}
@@ -1122,17 +1002,6 @@ export default function App() {
                 setCourtFeePerPerson={setCourtFeePerPerson}
                 shuttlePrice={shuttlePrice}
                 setShuttlePrice={setShuttlePrice}
-                googleSheetUrl={googleSheetUrl}
-                setGoogleSheetUrl={setGoogleSheetUrl}
-                onSync={syncToGoogleSheets}
-                isSyncing={isSyncing}
-                isAutoSync={isAutoSync}
-                setIsAutoSync={(val) => {
-                  setIsAutoSync(val);
-                  localStorage.setItem('smashit_autosync', val ? 'active' : 'inactive');
-                }}
-                onPushCloud={pushMasterData}
-                onPullCloud={pullMasterData}
                 onSeedMockHistory={seedMockHistory}
                 onResetDay={resetDay}
                 onFactoryReset={factoryReset}
@@ -1161,5 +1030,68 @@ export default function App() {
         </button>
       </nav>
     </div>
+    </>
+  );
+}
+
+// ── SplashScreen Component ───────────────────────────────────────────────────
+function SplashScreen() {
+  return (
+    <motion.div 
+      initial={{ opacity: 1 }} 
+      exit={{ opacity: 0 }} 
+      transition={{ duration: 0.8, ease: "easeInOut" }}
+      className="fixed inset-0 z-[1000] bg-on-surface flex flex-col items-center justify-center overflow-hidden"
+    >
+      {/* Background Orbs */}
+      <div className="absolute top-1/4 -left-20 w-96 h-96 bg-primary/20 rounded-full blur-[120px] animate-pulse" />
+      <div className="absolute bottom-1/4 -right-20 w-96 h-96 bg-secondary/10 rounded-full blur-[120px]" />
+      
+      <div className="relative flex flex-col items-center">
+        {/* Animated Logo */}
+        <motion.div 
+          initial={{ scale: 0.8, opacity: 0 }} 
+          animate={{ scale: 1, opacity: 1 }} 
+          transition={{ duration: 0.8, delay: 0.2, type: "spring" }}
+          className="w-24 h-24 bg-primary rounded-[2.5rem] flex items-center justify-center text-white italic text-5xl font-black shadow-[0_0_50px_rgba(var(--primary-rgb),0.4)] mb-8"
+        >
+          S
+        </motion.div>
+
+        <motion.div 
+          initial={{ y: 20, opacity: 0 }} 
+          animate={{ y: 0, opacity: 1 }} 
+          transition={{ duration: 0.6, delay: 0.5 }}
+          className="text-center"
+        >
+          <h1 className="font-headline font-black text-4xl text-white tracking-tighter mb-2">SmashIT</h1>
+          <p className="text-xs font-black text-primary uppercase tracking-[0.4em] ml-1">Organizer Pro</p>
+        </motion.div>
+
+        {/* High-end loading bar */}
+        <div className="mt-12 w-48 h-1 bg-white/10 rounded-full overflow-hidden relative">
+          <motion.div 
+            initial={{ left: "-100%" }} 
+            animate={{ left: "100%" }} 
+            transition={{ duration: 1.5, repeat: Infinity, ease: "easeInOut" }}
+            className="absolute top-0 bottom-0 w-1/2 bg-gradient-to-r from-transparent via-primary to-transparent" 
+          />
+        </div>
+        
+        <p className="mt-6 text-[9px] font-black text-white/20 uppercase tracking-widest animate-pulse">Synchronizing with Cloud DB...</p>
+      </div>
+
+      {/* Shuttlecock animation */}
+      <motion.div 
+        animate={{ 
+          y: [0, -20, 0],
+          rotate: [0, 15, -15, 0]
+        }}
+        transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
+        className="absolute bottom-12 text-3xl opacity-10"
+      >
+        🏸
+      </motion.div>
+    </motion.div>
   );
 }

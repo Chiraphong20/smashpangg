@@ -82,7 +82,9 @@ export function FinanceTab({ members, paymentHistory, onMarkAsPaid }: Props) {
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="font-bold text-on-surface">{member.name}</p>
-                      <p className="text-xs text-on-surface/50">{RANK_LEVEL_LABELS[member.rank]} • {member.gamesPlayed} เกม</p>
+                      <p className="text-xs text-on-surface/50">
+                        {RANK_LEVEL_LABELS[member.rank]}{RANK_LEVEL_LABELS[member.rank] ? ' • ' : ''}{member.gamesPlayed} เกม
+                      </p>
                     </div>
                     <div className="text-right mr-4">
                       <p className="font-headline font-black text-2xl text-error">฿{member.balance.toFixed(0)}</p>
@@ -119,7 +121,7 @@ export function FinanceTab({ members, paymentHistory, onMarkAsPaid }: Props) {
                   </div>
                   <div className="flex-1">
                     <p className="font-bold text-sm">{record.memberName}</p>
-                    <p className="text-[10px] text-on-surface/40">{record.note} • {format(new Date(record.paidAt), 'HH:mm')}</p>
+                    <p className="text-[10px] text-on-surface/40">{record.note} • {format(new Date(record.timestamp), 'HH:mm')}</p>
                   </div>
                   <div className="flex items-center gap-2">
                     <p className="font-headline font-black text-tertiary">฿{record.amount.toFixed(0)}</p>

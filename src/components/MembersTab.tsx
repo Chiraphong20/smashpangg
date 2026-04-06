@@ -139,7 +139,7 @@ export function MembersTab({
                     className="absolute inset-0 opacity-0 cursor-pointer"
                   >
                     {RANKS.map(r => (
-                      <option key={r} value={r}>{r} ({RANK_LEVEL_LABELS[r]})</option>
+                      <option key={r} value={r}>{r}{RANK_LEVEL_LABELS[r] ? ` (${RANK_LEVEL_LABELS[r]})` : ''}</option>
                     ))}
                   </select>
                 </div>
@@ -153,7 +153,7 @@ export function MembersTab({
                       onChange={(e) => onUpdateName(member.id, e.target.value)}
                     />
                   </div>
-                  <p className="text-xs font-bold text-primary">{RANK_LEVEL_LABELS[member.rank]}</p>
+                  {RANK_LEVEL_LABELS[member.rank] && <p className="text-xs font-bold text-primary">{RANK_LEVEL_LABELS[member.rank]}</p>}
                   <div className="flex items-center gap-3 mt-2">
                     <span className="text-[10px] font-black text-on-surface/40 uppercase">{member.gamesPlayed} เกม</span>
                     <span className="text-[10px] text-on-surface/20">•</span>

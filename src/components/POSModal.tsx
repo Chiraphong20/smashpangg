@@ -1,173 +1,310 @@
-import React, { useState } from 'react';
-import { X, Plus } from 'lucide-react';
-import { motion } from 'motion/react';
+import React, { useState, useMemo } from 'react';
+import { X, Plus, Minus, Search, ShoppingCart, User, CreditCard } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { Member, Snack, RANK_COLORS } from '../types';
 
 interface Props {
   member: Member;
   snacks: Snack[];
-  onAddSnack: (memberId: string, snack: Snack) => void;
+  onAddSnack: (memberId: string, snacks: Snack[]) => void;
   onClose: () => void;
 }
 
+interface CartItem {
+  snack: Snack;
+  quantity: number;
+}
+
 export function POSModal({ member, snacks, onAddSnack, onClose }: Props) {
+  const [search, setSearch] = useState('');
+  const [cart, setCart] = useState<CartItem[]>([]);
   const [customPrice, setCustomPrice] = useState('');
   const [customName, setCustomName] = useState('อื่นๆ');
-  const [sessionItems, setSessionItems] = useState<Snack[]>([]);
 
-  const handleAdd = (snack: Snack) => {
-    onAddSnack(member.id, snack);
-    setSessionItems(prev => [snack, ...prev]);
+  const filteredSnacks = useMemo(() => {
+    return snacks.filter(s => s.name.toLowerCase().includes(search.toLowerCase()));
+  }, [snacks, search]);
+
+  const addToCart = (snack: Snack) => {
+    setCart(prev => {
+      const existing = prev.find(item => item.snack.id === snack.id);
+      if (existing) {
+        return prev.map(item => item.snack.id === snack.id 
+          ? { ...item, quantity: item.quantity + 1 } 
+          : item
+        );
+      }
+      return [...prev, { snack, quantity: 1 }];
+    });
   };
 
-  const handleAddCustom = () => {
-    let price = parseFloat(customPrice);
+  const removeFromCart = (snackId: string) => {
+    setCart(prev => {
+      const existing = prev.find(item => item.snack.id === snackId);
+      if (existing && existing.quantity > 1) {
+        return prev.map(item => item.snack.id === snackId 
+          ? { ...item, quantity: item.quantity - 1 } 
+          : item
+        );
+      }
+      return prev.filter(item => item.snack.id !== snackId);
+    });
+  };
+
+  const addCustomToCart = () => {
+    const price = parseFloat(customPrice);
     if (isNaN(price) || price === 0) return;
     
-    let finalName = customName;
-    if (finalName === 'อื่นๆ') {
-      if (price === 10) finalName = 'ค่าน้ำ';
-      if (price === -10) finalName = 'ลบค่าน้ำ';
-    }
-
     const snack: Snack = {
-      id: 'custom-' + Date.now(),
-      name: finalName || 'อื่นๆ',
+      id: `custom-${Date.now()}`,
+      name: customName || 'อื่นๆ',
       price: price,
-      icon: price < 0 ? '🔄' : '🛒'
+      icon: price < 0 ? '🔄' : '🛍️'
     };
-
-    handleAdd(snack);
-    setCustomPrice(''); // Clear for next one
+    addToCart(snack);
+    setCustomPrice('');
     setCustomName('อื่นๆ');
   };
 
-  const handleQuickWater = (amount: number) => {
-    const snack: Snack = {
-      id: 'water-' + Date.now(),
-      name: amount > 0 ? 'ค่าน้ำ' : 'ลบค่าน้ำ',
-      price: amount,
-      icon: amount > 0 ? '💧' : '🔄'
-    };
-    handleAdd(snack);
+  const total = useMemo(() => {
+    return cart.reduce((sum, item) => sum + (item.snack.price * item.quantity), 0);
+  }, [cart]);
+
+  const handleFinish = () => {
+    const flatSnacks: Snack[] = [];
+    cart.forEach(item => {
+      for (let i = 0; i < item.quantity; i++) {
+        flatSnacks.push(item.snack);
+      }
+    });
+    onAddSnack(member.id, flatSnacks);
+    onClose();
   };
 
   return (
-    <div className="fixed inset-0 z-[130] flex items-end sm:items-center justify-center p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-[150] flex items-center justify-center p-0 md:p-4">
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-        className="absolute inset-0 bg-on-surface/50 backdrop-blur-sm" />
-      <motion.div initial={{ y: 40, opacity: 0 }} animate={{ y: 0, opacity: 1 }} exit={{ y: 40, opacity: 0 }}
+        className="absolute inset-0 bg-on-surface/60 backdrop-blur-md" />
+      
+      <motion.div 
+        initial={{ scale: 0.95, opacity: 0, y: 20 }} 
+        animate={{ scale: 1, opacity: 1, y: 0 }} 
+        exit={{ scale: 0.95, opacity: 0, y: 20 }}
         onClick={e => e.stopPropagation()}
-        className="bg-white w-full max-w-lg rounded-[2rem] p-8 relative z-10 shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
+        onKeyDown={e => {
+          if (e.key === 'Enter' && cart.length > 0) {
+            handleFinish();
+          }
+        }}
+        tabIndex={0}
+        className="bg-background w-full max-w-6xl h-full md:h-[85vh] rounded-none md:rounded-[2.5rem] shadow-2xl relative z-10 flex flex-col md:flex-row overflow-hidden border border-white/20 outline-none">
         
-        <div className="flex items-center gap-3 mb-4">
-          <div className={cn('w-12 h-12 rounded-2xl flex items-center justify-center font-black shrink-0', RANK_COLORS[member.rank])}>
-            {member.rank}
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="font-headline font-black text-xl truncate">{member.name}</p>
-            <p className="text-xs text-on-surface/40 font-bold uppercase tracking-wider">ยอดปัจจุบัน: ฿{member.balance.toFixed(0)}</p>
-          </div>
-          <button onClick={onClose} className="p-2 rounded-full hover:bg-background transition-colors text-on-surface/20 hover:text-on-surface">
-            <X size={20} />
-          </button>
-        </div>
+        {/* Floating Close Button for Desktop */}
+        <button 
+          onClick={onClose}
+          className="absolute top-6 right-6 z-[60] p-2.5 bg-background/50 backdrop-blur-md hover:bg-on-surface/10 rounded-full text-on-surface/40 hover:text-on-surface transition-all flex items-center justify-center shadow-sm border border-white/20"
+        >
+          <X size={20} />
+        </button>
 
-        <div className="flex-1 overflow-y-auto no-scrollbar pb-4 space-y-4">
-          {/* Quick Water Section */}
-          <div className="grid grid-cols-2 gap-2">
-            <button 
-              onClick={() => handleQuickWater(10)}
-              className="flex items-center justify-center gap-2 bg-blue-500 text-white py-3 rounded-2xl font-black text-sm shadow-lg shadow-blue-500/20 hover:scale-105 active:scale-95 transition-all"
-            >
-              <Plus size={16} strokeWidth={4} /> บวกค่าน้ำ 10
-            </button>
-            <button 
-              onClick={() => handleQuickWater(-10)}
-              className="flex items-center justify-center gap-2 bg-red-500 text-white py-3 rounded-2xl font-black text-sm shadow-lg shadow-red-500/20 hover:scale-105 active:scale-95 transition-all"
-            >
-              <span className="text-lg leading-none">-</span> ลบค่าน้ำ 10
-            </button>
-          </div>
-
-          {/* Custom Price Section */}
-          <div className="p-4 bg-primary/5 rounded-3xl border-2 border-primary/10">
-            <p className="text-[10px] font-black uppercase text-primary/60 mb-3 tracking-widest px-1">กรอกจำนวนเงินเอง</p>
-            <div className="flex gap-2">
-              <input 
-                type="text" 
-                placeholder="รายการ"
-                value={customName}
-                onChange={e => setCustomName(e.target.value)}
-                onKeyDown={(e) => e.key === 'Enter' && handleAddCustom()}
-                className="flex-1 min-w-0 bg-white border-none rounded-xl px-3 py-2.5 text-xs font-bold focus:ring-2 focus:ring-primary/20 outline-none shadow-sm"
-              />
-              <div className="w-20 relative">
-                <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-on-surface/30 text-xs font-black">฿</span>
-                <input 
-                  type="number" 
-                  placeholder="0"
-                  value={customPrice}
-                  onChange={e => setCustomPrice(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter') {
-                      if (customPrice) handleAddCustom();
-                      else onClose();
-                    }
-                  }}
-                  className="w-full pl-5 pr-2 py-2.5 bg-white border-none rounded-xl text-xs font-black focus:ring-2 focus:ring-primary/20 outline-none shadow-sm"
-                />
+        {/* Left Section: Product Selection */}
+        <div className="flex-1 flex flex-col min-w-0 bg-white/50 backdrop-blur-sm">
+          {/* Header */}
+          <div className="p-6 border-b border-on-surface/5 flex items-center justify-between">
+            <div className="flex items-center gap-4">
+              <div className="w-12 h-12 bg-primary/10 rounded-2xl flex items-center justify-center">
+                <ShoppingCart size={24} className="text-primary" />
               </div>
-              <button 
-                onClick={handleAddCustom}
-                disabled={!customPrice}
-                className="bg-primary text-white p-2.5 rounded-xl shadow-lg shadow-primary/20 hover:scale-105 active:scale-95 transition-all disabled:opacity-30 disabled:scale-100"
-              >
-                <Plus size={20} strokeWidth={3} />
-              </button>
+              <div>
+                <h2 className="font-headline font-black text-2xl text-on-surface">เลือกสินค้า</h2>
+                <p className="text-[10px] font-black uppercase text-on-surface/40 tracking-widest">Product Selection</p>
+              </div>
+            </div>
+            
+            <div className="relative w-64 group hidden sm:block">
+              <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface/20 group-focus-within:text-primary transition-colors" />
+              <input 
+                type="text"
+                placeholder="ค้นหาชื่อสินค้า..."
+                value={search}
+                onChange={e => setSearch(e.target.value)}
+                className="w-full pl-12 pr-4 py-3 bg-on-surface/5 border-none rounded-2xl font-bold text-sm focus:ring-4 focus:ring-primary/10 transition-all outline-none"
+              />
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            {snacks.map(s => (
-              <button key={s.id} onClick={() => handleAdd(s)}
-                className="flex flex-col items-start p-3 bg-background rounded-2xl hover:bg-primary/5 active:scale-95 transition-all border-2 border-transparent hover:border-primary/20 group text-left">
-                <span className="text-2xl mb-1 group-hover:scale-110 transition-transform origin-left">{s.icon}</span>
-                <span className="text-[10px] font-black block truncate w-full">{s.name}</span>
-                <span className="text-[9px] font-black text-secondary">฿{s.price}</span>
+          {/* Product Grid */}
+          <div className="flex-1 overflow-y-auto p-6 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4 scrollbar-hide">
+            {filteredSnacks.map(s => (
+              <button 
+                key={s.id} 
+                onClick={() => addToCart(s)}
+                className="group relative bg-white rounded-[2.5rem] p-5 flex flex-col items-center justify-center gap-4 transition-all border-2 border-transparent hover:border-primary/20 hover:shadow-xl hover:-translate-y-1 active:scale-95"
+              >
+                <div className="w-24 h-24 flex items-center justify-center transform group-hover:scale-110 transition-transform duration-300 drop-shadow-md overflow-hidden rounded-2xl bg-white/50">
+                  {s.image ? (
+                    <img 
+                      src={s.image} 
+                      alt={s.name} 
+                      className="w-full h-full object-contain p-2"
+                      onError={(e) => {
+                        // Fallback if image fails to load
+                        (e.currentTarget as HTMLImageElement).src = ''; 
+                        (e.currentTarget as HTMLImageElement).parentElement!.innerHTML = `<span class="text-6xl">${s.icon}</span>`;
+                      }}
+                    />
+                  ) : (
+                    <span className="text-6xl">{s.icon}</span>
+                  )}
+                </div>
+                <div className="text-center">
+                  <p className="font-black text-sm text-on-surface line-clamp-1">{s.name}</p>
+                  <p className="text-base font-headline font-black text-primary">฿{s.price}</p>
+                </div>
+                <div className="absolute top-4 right-4 w-7 h-7 bg-primary/10 rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                  <Plus size={16} className="text-primary" strokeWidth={3} />
+                </div>
               </button>
             ))}
           </div>
-
-          {/* Recently Added Section */}
-          {sessionItems.length > 0 && (
-            <div className="pt-4 border-t border-on-surface/5 space-y-2">
-              <p className="text-[10px] font-black uppercase text-on-surface/30 tracking-widest px-1">เพิ่มแล้ววันนี้ ({sessionItems.length})</p>
-              <div className="space-y-1.5">
-                {sessionItems.map((item, i) => (
-                  <div key={i} className="flex items-center justify-between bg-on-surface/2 px-3 py-2 rounded-xl text-[10px] font-bold">
-                    <div className="flex items-center gap-2">
-                      <span>{item.icon}</span>
-                      <span className="text-on-surface/60">{item.name}</span>
-                    </div>
-                    <span className={cn("font-black", item.price < 0 ? "text-error" : "text-primary")}>
-                      {item.price > 0 ? `+฿${item.price}` : `-฿${Math.abs(item.price)}`}
-                    </span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
         </div>
 
-        <button 
-          onClick={onClose}
-          className="w-full bg-on-surface text-white py-4 rounded-[1.5rem] font-black text-sm shadow-xl shadow-on-surface/10 hover:scale-[1.02] active:scale-95 transition-all mt-2"
-        >
-          {sessionItems.length > 0 ? "เรียบร้อย" : "ปิด"}
-        </button>
+        {/* Right Section: Cart / Summary */}
+        <div className="w-full md:w-[380px] bg-white border-l border-on-surface/5 flex flex-col shadow-2xl">
+          {/* Customer Info */}
+          <div className="p-6 bg-on-surface/2 border-b border-on-surface/5">
+            <div className="flex items-center gap-4">
+              <div className={cn("w-14 h-14 rounded-2xl flex items-center justify-center font-black text-lg shrink-0 shadow-lg", RANK_COLORS[member.rank])}>
+                {member.rank}
+              </div>
+              <div className="flex-1 min-w-0">
+                <p className="text-[11px] font-black uppercase text-on-surface/30 tracking-widest">คุณลูกค้า</p>
+                <h3 className="font-headline font-black text-2xl text-on-surface truncate leading-tight">{member.name}</h3>
+                <div className="flex items-center gap-1.5 mt-1">
+                  <CreditCard size={14} className="text-green-500" />
+                  <span className="text-[11px] font-black text-green-600 uppercase">Balance: ฿{member.balance.toFixed(0)}</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Cart Items */}
+          <div className="flex-1 overflow-y-auto p-6 space-y-4">
+            <div className="flex items-center justify-between mb-2">
+              <h4 className="text-[10px] font-black uppercase text-on-surface/30 tracking-widest flex items-center gap-2">
+                <ShoppingCart size={12} /> ตะกร้าสินค้า ({cart.reduce((a, b) => a + b.quantity, 0)})
+              </h4>
+              {cart.length > 0 && (
+                <button onClick={() => setCart([])} className="text-[10px] font-black text-error uppercase hover:underline">ล้างทั้งหมด</button>
+              )}
+            </div>
+
+            <AnimatePresence mode="popLayout">
+              {cart.length === 0 ? (
+                <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="py-12 text-center space-y-3">
+                  <div className="w-16 h-16 bg-background rounded-full flex items-center justify-center mx-auto text-on-surface/10">
+                    <ShoppingCart size={32} />
+                  </div>
+                  <p className="text-xs font-bold text-on-surface/20">ยังไม่มีสินค้าในตะกร้า</p>
+                </motion.div>
+              ) : (
+                cart.map(item => (
+                  <motion.div 
+                    layout key={item.snack.id} 
+                    initial={{ scale: 0.9, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.9, opacity: 0 }}
+                    className="flex items-center gap-4 bg-background p-4 rounded-2xl group border border-transparent hover:border-primary/10 transition-all shadow-sm"
+                  >
+                    <div className="w-12 h-12 bg-white rounded-xl flex items-center justify-center shadow-sm shrink-0 overflow-hidden">
+                      {item.snack.image ? (
+                        <img src={item.snack.image} alt={item.snack.name} className="w-full h-full object-contain p-1" />
+                      ) : (
+                        <span className="text-2xl">{item.snack.icon}</span>
+                      )}
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm font-black text-on-surface truncate">{item.snack.name}</p>
+                      <p className="text-[11px] font-black text-primary">฿{item.snack.price}</p>
+                    </div>
+                    <div className="flex items-center gap-3 bg-white px-3 py-1.5 rounded-xl shadow-sm">
+                      <button onClick={() => removeFromCart(item.snack.id)} className="w-6 h-6 flex items-center justify-center text-on-surface/30 hover:text-error transition-colors">
+                        <Minus size={16} strokeWidth={3} />
+                      </button>
+                      <span className="text-sm font-black min-w-[20px] text-center">{item.quantity}</span>
+                      <button onClick={() => addToCart(item.snack)} className="w-6 h-6 flex items-center justify-center text-on-surface/30 hover:text-primary transition-colors">
+                        <Plus size={16} strokeWidth={3} />
+                      </button>
+                    </div>
+                  </motion.div>
+                ))
+              )}
+            </AnimatePresence>
+          </div>
+
+          {/* Custom Quick Add Section */}
+          <div className="p-4 bg-primary/5 mx-4 mb-2 rounded-3xl border-2 border-primary/10 space-y-3">
+             <p className="text-[9px] font-black uppercase text-primary tracking-[0.2em] px-1">คีย์ราคาเอง / ส่วนลด</p>
+             <div className="flex gap-2">
+                <input 
+                  type="text" value={customName} onChange={e => setCustomName(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && addCustomToCart()}
+                  placeholder="ชื่อรายการ..."
+                  className="flex-1 px-3 py-2.5 bg-white rounded-xl text-[11px] font-bold outline-none shadow-sm focus:ring-2 focus:ring-primary/20 transition-all"
+                />
+                <div className="w-24 relative">
+                  <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-on-surface/20 font-black text-[11px]">฿</span>
+                  <input 
+                    type="number" value={customPrice} onChange={e => setCustomPrice(e.target.value)}
+                    onKeyDown={e => e.key === 'Enter' && addCustomToCart()}
+                    placeholder="0.00"
+                    className="w-full pl-6 pr-3 py-2.5 bg-white rounded-xl text-sm font-black outline-none shadow-sm focus:ring-2 focus:ring-primary/20 transition-all"
+                  />
+                </div>
+                <button 
+                  onClick={addCustomToCart}
+                  disabled={!customPrice}
+                  className="bg-primary text-white p-2.5 rounded-xl flex items-center justify-center shadow-lg shadow-primary/20 hover:scale-105 active:scale-95 transition-all disabled:opacity-30 disabled:scale-100"
+                >
+                  <Plus size={18} strokeWidth={3} />
+                </button>
+             </div>
+          </div>
+
+          {/* Summary and Action */}
+          <div className="p-6 bg-on-surface/[0.03] border-t border-on-surface/5 space-y-4">
+            <div className="space-y-2">
+              <div className="flex justify-between items-center text-on-surface/40 font-black text-[11px] uppercase tracking-[0.2em] px-1">
+                <span>ยอดรวมสินค้า</span>
+                <span>฿{total.toFixed(2)}</span>
+              </div>
+              <div className="flex justify-between items-center border-t border-on-surface/5 pt-5">
+                <p className="text-base font-black text-on-surface uppercase tracking-[0.2em]">รวมสุทธิ</p>
+                <p className="text-5xl font-headline font-black text-primary">฿{total.toLocaleString()}</p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-4 gap-3 pt-3">
+               <button onClick={onClose} className="p-5 bg-background hover:bg-on-surface/5 text-on-surface/40 rounded-3xl transition-all flex items-center justify-center">
+                 <X size={24} />
+               </button>
+               <button 
+                onClick={handleFinish}
+                disabled={cart.length === 0}
+                className="col-span-3 bg-primary text-white py-5 rounded-3xl font-headline font-black text-2xl uppercase tracking-widest shadow-2xl shadow-primary/30 hover:scale-[1.02] active:scale-95 transition-all disabled:opacity-40 disabled:scale-100 flex items-center justify-center gap-4">
+                 <CheckCircle2 size={32} /> เรียบร้อย
+               </button>
+            </div>
+          </div>
+        </div>
+
       </motion.div>
     </div>
   );
 }
+
+const CheckCircle2 = ({ size, className }: { size?: number, className?: string }) => (
+  <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" className={className}>
+    <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+    <polyline points="22 4 12 14.01 9 11.01" />
+  </svg>
+);

@@ -24,7 +24,7 @@ export function AddCourtModal({ open, onClose, onAdd }: Props) {
       {open && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            onClick={onClose} className="absolute inset-0 bg-on-surface/60 backdrop-blur-sm" />
+            className="absolute inset-0 bg-on-surface/60 backdrop-blur-sm" />
           <motion.div initial={{ scale: 0.9, opacity: 0, y: 20 }} animate={{ scale: 1, opacity: 1, y: 0 }} exit={{ scale: 0.9, opacity: 0, y: 20 }}
             className="bg-white w-full max-w-sm rounded-[2.5rem] p-8 relative z-10 shadow-2xl">
             <div className="flex items-center justify-between mb-8">

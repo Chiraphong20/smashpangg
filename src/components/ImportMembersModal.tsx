@@ -95,7 +95,7 @@ export function ImportMembersModal({ open, onClose, onImport, rankMemory, existi
   const [text, setText] = useState('');
   const [parsed, setParsed] = useState<ParsedMember[]>([]);
   const [step, setStep] = useState<'paste' | 'confirm'>('paste');
-  const [mode, setMode] = useState<'line' | 'master'>(isSessionMode ? 'line' : 'master');
+  const [mode] = useState<'line' | 'master'>('line');
 
   const handleParse = () => {
     if (mode === 'line') {
@@ -169,13 +169,19 @@ export function ImportMembersModal({ open, onClose, onImport, rankMemory, existi
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-[150] flex items-center justify-center p-4" onClick={handleClose}>
+    <div className="fixed inset-0 z-[150] flex items-center justify-center p-4">
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
         className="absolute inset-0 bg-on-surface/50 backdrop-blur-sm" />
       <motion.div initial={{ scale: 0.95, opacity: 0, y: 10 }} animate={{ scale: 1, opacity: 1, y: 0 }}
         exit={{ scale: 0.95, opacity: 0 }}
         onClick={e => e.stopPropagation()}
-        className="bg-white rounded-[2rem] w-full max-w-2xl shadow-2xl relative z-10 flex flex-col max-h-[90vh]">
+        onKeyDown={e => {
+          if (e.key === 'Enter' && step === 'confirm' && parsed.length > 0) {
+            handleImport();
+          }
+        }}
+        tabIndex={0}
+        className="bg-white rounded-[2rem] w-full max-w-2xl shadow-2xl relative z-10 flex flex-col max-h-[90vh] outline-none">
 
         {/* Header */}
         <div className="flex items-center gap-4 p-6 border-b border-on-surface/5 shrink-0">
@@ -187,16 +193,9 @@ export function ImportMembersModal({ open, onClose, onImport, rankMemory, existi
               {isSessionMode ? 'ลงชื่อร่วมเซสชัน (รายวัน)' : 'เพิ่มสมาชิกเข้าฐานข้อมูล'}
             </h2>
             <div className="flex gap-4 mt-1">
-              <button onClick={() => setMode('line')}
-                className={cn("text-[10px] font-black uppercase tracking-widest transition-colors", mode === 'line' ? "text-primary" : "text-on-surface/30")}>
-                จากคิวไลน์
-              </button>
-              { !isSessionMode && (
-                <button onClick={() => setMode('master')}
-                  className={cn("text-[10px] font-black uppercase tracking-widest transition-colors", mode === 'master' ? "text-primary" : "text-on-surface/30")}>
-                  ฐานข้อมูลมือตบ
-                </button>
-              )}
+              <span className="text-[10px] font-black uppercase tracking-widest text-primary italic">
+                จากคิวไลน์ (LINE Queue)
+              </span>
             </div>
           </div>
           <button onClick={handleClose} className="p-2 rounded-full hover:bg-background"><X size={20} /></button>
@@ -233,6 +232,11 @@ export function ImportMembersModal({ open, onClose, onImport, rankMemory, existi
               <textarea
                 value={text}
                 onChange={e => setText(e.target.value)}
+                onKeyDown={e => {
+                  if ((e.ctrlKey || e.metaKey) && e.key === 'Enter' && text.trim()) {
+                    handleParse();
+                  }
+                }}
                 placeholder={mode === 'line' ? 'ก๊อปปี้รายชื่อจากไลน์มาวางที่นี่...' : 'วางชื่อและระดับมือ...'}
                 className="w-full h-72 px-4 py-3 bg-background rounded-2xl text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none"
                 autoFocus

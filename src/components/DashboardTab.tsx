@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { Trophy, Users, Banknote, TrendingUp, ChevronDown, ChevronUp, X, ShoppingCart, Plus, RefreshCw, Trash2, Clock, Search, Monitor, Calendar, History, CheckCircle2, Cloud, Upload, Download, UserPlus, FileText } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
-import { Member, Court, PaymentRecord, GameRecord, Snack, Rank, RANKS, RANK_COLORS, RANK_LEVEL_LABELS, SessionRecord } from '../types';
+import { Member, Court, PaymentRecord, GameRecord, Snack, Rank, RANKS, RANK_COLORS, RANK_LEVEL_LABELS, SessionRecord, RANK_WEIGHTS } from '../types';
 import { format } from 'date-fns';
 import { POSModal } from './POSModal';
 
@@ -12,7 +12,7 @@ interface Props {
   snacks: Snack[];
   paymentHistory: PaymentRecord[];
   gameHistory: GameRecord[];
-  onAddSnack: (memberId: string, snack: Snack) => void;
+  onAddSnack: (memberId: string, snacks: Snack[]) => void;
   onUpdateShuttles: (memberId: string, delta: number) => void;
   onUpdateRank: (memberId: string, rank: Rank) => void;
   onRemoveSnack: (memberId: string, snackIndex: number) => void;
@@ -30,10 +30,6 @@ interface Props {
   onRemove: (memberId: string) => void;
   onResetDay: () => void;
   isSyncing: boolean;
-  isPushing?: boolean;
-  isAutoSync?: boolean;
-  isSyncError?: boolean;
-  lastSyncTime?: number;
   onImportLine: () => void;
 }
 
@@ -66,7 +62,7 @@ function CheckoutModal({ member, gameHistory, otherMembers, initialOthers = [], 
   const [tempPrice, setTempPrice] = useState<string>('');
 
   return (
-    <div className="fixed inset-0 z-[200] flex items-center justify-center p-4" onClick={onClose}>
+    <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
         className="absolute inset-0 bg-on-surface/50 backdrop-blur-sm" />
       <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
@@ -86,7 +82,7 @@ function CheckoutModal({ member, gameHistory, otherMembers, initialOthers = [], 
                 className="absolute inset-0 opacity-0 cursor-pointer"
               >
                 {[...RANKS].map(r => (
-                  <option key={r} value={r}>{r} ({RANK_LEVEL_LABELS[r]})</option>
+                  <option key={r} value={r}>{r}{RANK_LEVEL_LABELS[r] ? ` (${RANK_LEVEL_LABELS[r]})` : ''}</option>
                 ))}
               </select>
             )}
@@ -94,8 +90,12 @@ function CheckoutModal({ member, gameHistory, otherMembers, initialOthers = [], 
           <div className="flex-1 min-w-0">
             <h2 className="font-headline font-black text-3xl tracking-tight leading-none mb-2">{member.name}</h2>
             <div className="flex items-center gap-2">
-              <span className="text-[10px] font-black uppercase tracking-widest text-primary px-2 py-0.5 bg-primary/5 rounded-full">{RANK_LEVEL_LABELS[member.rank]}</span>
-              <span className="text-on-surface/20">•</span>
+              {RANK_LEVEL_LABELS[member.rank] && (
+                <>
+                  <span className="text-[10px] font-black uppercase tracking-widest text-primary px-2 py-0.5 bg-primary/5 rounded-full">{RANK_LEVEL_LABELS[member.rank]}</span>
+                  <span className="text-on-surface/20">•</span>
+                </>
+              )}
               <span className="text-[10px] font-black uppercase tracking-widest text-on-surface/40">{member.gamesPlayed} เกมส์</span>
             </div>
           </div>
@@ -252,6 +252,11 @@ function CheckoutModal({ member, gameHistory, otherMembers, initialOthers = [], 
                   type="number"
                   value={displayAmount}
                   onChange={(e) => setManualAmount(Number(e.target.value))}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !isReadOnly && member.status !== 'paid' && displayAmount >= 0) {
+                      onPay(displayAmount, selectedOthers);
+                    }
+                  }}
                   className="bg-transparent border-none p-0 font-headline font-black text-4xl text-error tracking-tight focus:ring-0 w-full"
                 />
               </div>
@@ -312,7 +317,7 @@ export function DashboardTab({
   sessionHistory, onViewSession,
   onProcessPayment, onReOpen, onPullSession,
   onAddCourt, isSidebarCollapsed, onCheckIn, onRemove, onResetDay, 
-  isSyncing, isPushing, isAutoSync, isSyncError, lastSyncTime, onImportLine
+  isSyncing, onImportLine
 }: Props) {
   const [selectedMember, setSelectedMember] = useState<Member | null>(null);
   const [posTarget, setPosTarget] = useState<Member | null>(null);
@@ -320,6 +325,7 @@ export function DashboardTab({
   const [dbSearch, setDbSearch] = useState('');
   const [checkedIds, setCheckedIds] = useState<string[]>([]);
   const [bulkCheckout, setBulkCheckout] = useState<{member: Member, others: string[]} | null>(null);
+  const [sortConfig, setSortConfig] = useState<{ key: 'default' | 'name' | 'shuttles' | 'balance', direction: 'asc' | 'desc' }>({ key: 'default', direction: 'desc' });
 
   const isReadOnly = !!viewingSession;
   const currentMembers = viewingSession ? viewingSession.membersSnapshot : members;
@@ -360,7 +366,40 @@ export function DashboardTab({
     return currentMembers.filter(m => m.name.toLowerCase().includes(query));
   }, [currentMembers, dbSearch, isReadOnly]);
 
-  const sortedMembers = [...filteredMembers].sort((a, b) => b.gamesPlayed - a.gamesPlayed || b.balance - a.balance);
+  const sortedMembers = useMemo(() => {
+    const list = [...filteredMembers];
+    if (sortConfig.key === 'name') {
+      list.sort((a, b) => {
+        const res = sortConfig.direction === 'asc' ? a.name.localeCompare(b.name) : b.name.localeCompare(a.name);
+        if (res !== 0) return res;
+        return (RANK_WEIGHTS[b.rank] || 0) - (RANK_WEIGHTS[a.rank] || 0); // fallback to rank
+      });
+    } else if (sortConfig.key === 'shuttles') {
+      list.sort((a, b) => sortConfig.direction === 'asc' ? a.shuttleCount - b.shuttleCount : b.shuttleCount - a.shuttleCount);
+    } else if (sortConfig.key === 'balance') {
+      list.sort((a, b) => sortConfig.direction === 'asc' ? a.balance - b.balance : b.balance - a.balance);
+    } else {
+      // Default sort: Status (playing first), then Rank weight, then Games Played, then Balance
+      list.sort((a, b) => {
+        if (a.status === 'playing' && b.status !== 'playing') return -1;
+        if (a.status !== 'playing' && b.status === 'playing') return 1;
+        const rw = (RANK_WEIGHTS[b.rank] || 0) - (RANK_WEIGHTS[a.rank] || 0);
+        if (rw !== 0) return rw;
+        return b.gamesPlayed - a.gamesPlayed || b.balance - a.balance;
+      });
+    }
+    return list;
+  }, [filteredMembers, sortConfig]);
+
+  const handleSort = (key: 'name' | 'shuttles' | 'balance') => {
+    setSortConfig(prev => {
+      if (prev.key === key) {
+        if (prev.direction === 'desc') return { key, direction: 'asc' };
+        return { key: 'default', direction: 'desc' }; // Toggle off
+      }
+      return { key, direction: 'desc' };
+    });
+  };
 
   const activePlayers = currentMembers.filter(m => m.status === 'playing').length;
   const waitingPlayers = currentMembers.filter(m => m.status === 'waiting').length;
@@ -381,23 +420,10 @@ export function DashboardTab({
               <h2 className="font-headline font-black text-xl tracking-tight leading-none mb-1">
                 {isReadOnly ? "ประวัติย้อนหลัง" : "Live Monitor"}
               </h2>
-              {isAutoSync && !isReadOnly && (
-                <div className={cn(
-                  "flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[8px] font-black uppercase tracking-widest transition-all",
-                  isSyncError ? "bg-error/10 text-error" : 
-                  isPushing ? "bg-primary/10 text-primary animate-pulse" : "bg-green-500/10 text-green-500"
-                )}>
-                  <Cloud size={10} />
-                  {isSyncError ? "Connection Error" : isPushing ? "Syncing..." : "Real-time On"}
-                </div>
-              )}
             </div>
             <p className="text-[9px] font-bold text-on-surface/40 uppercase tracking-widest flex items-center gap-2">
-              <span className={cn("w-2 h-2 rounded-full animate-pulse", isReadOnly ? "bg-primary" : isSyncError ? "bg-error" : "bg-green-500")} />
+              <span className={cn("w-2 h-2 rounded-full animate-pulse", isReadOnly ? "bg-primary" : "bg-green-500")} />
               {isReadOnly ? `ข้อมูลสรุปของ ${format(viewingSession!.date, 'do MMM yyyy')}` : "กระดานสรุปผลสด (เรียลไทม์)"}
-              {lastSyncTime && !isReadOnly && isAutoSync && !isSyncError && (
-                <span className="text-on-surface/20 ml-2 italic">Synced {format(lastSyncTime, 'HH:mm:ss')}</span>
-              )}
             </p>
           </div>
         </div>
@@ -428,7 +454,8 @@ export function DashboardTab({
                       gameHistory: [],
                       paymentHistory: []
                     });
-                    // Then auto-pull from cloud
+                    
+                    // Pull from API
                     onPullSession(selected);
                   }
                 }
@@ -458,12 +485,7 @@ export function DashboardTab({
       {/* POS modal for manual charging from dashboard */}
       <AnimatePresence>
         {posTarget && (
-          <POSModal
-            member={currentMembers.find(m => m.id === posTarget.id) || posTarget}
-            snacks={snacks}
-            onAddSnack={onAddSnack}
-            onClose={() => setPosTarget(null)}
-          />
+          <POSModal member={posTarget} snacks={snacks} onAddSnack={onAddSnack} onClose={() => setPosTarget(null)} />
         )}
       </AnimatePresence>
 
@@ -491,6 +513,12 @@ export function DashboardTab({
           <div className="flex items-center gap-4">
             <h2 className="font-headline font-black text-xl">ลูกค้าที่เล่นวันนี้</h2>
             <div className="h-5 w-[2px] bg-on-surface/5 hidden md:block" />
+            {isSyncing && (
+              <div className="flex items-center gap-1.5 px-2 py-1 bg-primary/5 rounded-lg">
+                <div className="w-1.5 h-1.5 bg-primary rounded-full animate-ping" />
+                <span className="text-[8px] font-black uppercase tracking-tighter text-primary">Cloud Saving...</span>
+              </div>
+            )}
             <button
               onClick={onImportLine}
               className="flex items-center gap-2 bg-primary text-white px-4 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest shadow-lg shadow-primary/20 hover:scale-105 active:scale-95 transition-all"
@@ -524,13 +552,34 @@ export function DashboardTab({
                 className="w-4 h-4 rounded border-on-surface/10 text-primary focus:ring-primary/20"
               />
             )}
-            <span>ชื่อ / ระดับ</span>
+            <span className="cursor-pointer hover:text-primary transition-colors flex items-center gap-1 group/h" onClick={() => handleSort('name')}>
+              ชื่อ / ระดับ
+              {sortConfig.key === 'name' ? (
+                sortConfig.direction === 'asc' ? <ChevronUp size={12} className="text-primary" /> : <ChevronDown size={12} className="text-primary" />
+              ) : (
+                <ChevronDown size={10} className="opacity-0 group-hover/h:opacity-50" />
+              )}
+            </span>
           </div>
           <div className="col-span-1 text-center">เกม</div>
           <div className="col-span-2 text-right">ค่าสนาม</div>
-          <div className="col-span-2 text-right">ค่าลูก</div>
+          <div className="col-span-2 text-right cursor-pointer hover:text-primary transition-colors flex justify-end items-center gap-1 group/h" onClick={() => handleSort('shuttles')}>
+            {sortConfig.key === 'shuttles' ? (
+              sortConfig.direction === 'asc' ? <ChevronUp size={12} className="text-primary" /> : <ChevronDown size={12} className="text-primary" />
+            ) : (
+              <ChevronDown size={10} className="opacity-0 group-hover/h:opacity-50" />
+            )}
+            ค่าลูก
+          </div>
           <div className="col-span-2 text-right">สินค้า</div>
-          <div className="col-span-2 text-right text-error font-black">ยอดรวม</div>
+          <div className="col-span-2 text-right text-error font-black cursor-pointer hover:text-error/80 transition-colors flex justify-end items-center gap-1 group/h" onClick={() => handleSort('balance')}>
+            {sortConfig.key === 'balance' ? (
+              sortConfig.direction === 'asc' ? <ChevronUp size={12} className="text-error" /> : <ChevronDown size={12} className="text-error" />
+            ) : (
+              <ChevronDown size={10} className="opacity-0 group-hover/h:opacity-50" />
+            )}
+            ยอดรวม
+          </div>
         </div>
 
         {/* Rows */}
@@ -552,7 +601,7 @@ export function DashboardTab({
                     className="mx-auto flex items-center gap-2 px-6 py-3 bg-secondary text-white rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-secondary/20 hover:scale-105 active:scale-95 transition-all disabled:opacity-50"
                   >
                     <Cloud size={16} className={isSyncing ? "animate-pulse" : ""} />
-                    {isSyncing ? "กำลังดึงข้อมูล..." : "ดึงข้อมูลจาก Cloud (Google Sheets)"}
+                    {isSyncing ? "กำลังเชื่อมต่อฐานข้อมูล..." : "ดึงประวัติจากฐานข้อมูล"}
                   </button>
                 )}
               </div>
@@ -680,11 +729,17 @@ export function DashboardTab({
                       <span className={m.balance > 0 ? 'text-error' : 'text-on-surface/10'}>
                         {m.balance > 0 ? `฿${m.balance.toFixed(0)}` : '✓'}
                       </span>
-                      {!isReadOnly && m.balance === 0 && (
+                      {!isReadOnly && (
                         <button
-                          onClick={(e) => { e.stopPropagation(); if(confirm(`ถอนชื่อ ${m.name} ออกจากรายการวันนี้?`)) onRemove(m.id); }}
-                          className="p-1.5 rounded-lg text-on-surface/20 hover:text-error hover:bg-error/5 transition-all opacity-0 group-hover:opacity-100"
-                          title="ถอนชื่อออกจากวันนี้"
+                          onClick={(e) => { 
+                            e.stopPropagation(); 
+                            const msg = m.balance > 0 
+                              ? `ถอนชื่อ ${m.name} ออกจากรายการวันนี้เหรอ? (มียอดค้างชำระอยู่ ฿${m.balance.toFixed(0)} ยอดเงินจะถูกลบไปด้วย)`
+                              : `ถอนชื่อ ${m.name} ออกจากรายการวันนี้เหรอ?`;
+                            if(confirm(msg)) onRemove(m.id); 
+                          }}
+                          className="p-1.5 rounded-lg text-on-surface/20 hover:text-error hover:bg-error/10 transition-all opacity-40 hover:opacity-100 group-hover:opacity-100 flex items-center justify-center gap-1.5 text-[10px] font-bold"
+                          title="ถอนชื่อจากกระดาน (เอาออกเพราะไม่มา/ใส่ผิด)"
                         >
                           <Trash2 size={16} />
                         </button>

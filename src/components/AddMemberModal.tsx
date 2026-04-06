@@ -9,9 +9,10 @@ interface Props {
   onClose: () => void;
   onAdd: (name: string, rank: Rank) => void;
   existingNames: string[];
+  rankMemory?: Record<string, Rank>;
 }
 
-export function AddMemberModal({ open, onClose, onAdd, existingNames }: Props) {
+export function AddMemberModal({ open, onClose, onAdd, existingNames, rankMemory = {} }: Props) {
   const [name, setName] = useState('');
   const [rank, setRank] = useState<Rank>('P');
 
@@ -32,9 +33,9 @@ export function AddMemberModal({ open, onClose, onAdd, existingNames }: Props) {
   return (
     <AnimatePresence>
       {open && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+        <div className="fixed inset-0 z-[150] flex items-center justify-center p-4">
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
-            onClick={onClose} className="absolute inset-0 bg-on-surface/60 backdrop-blur-sm" />
+            className="absolute inset-0 bg-on-surface/50 backdrop-blur-sm" />
           <motion.div initial={{ scale: 0.9, opacity: 0, y: 20 }} animate={{ scale: 1, opacity: 1, y: 0 }} exit={{ scale: 0.9, opacity: 0, y: 20 }}
             className="bg-white w-full max-w-md rounded-[2.5rem] p-8 relative z-10 shadow-2xl">
             <div className="flex items-center justify-between mb-8">
@@ -48,10 +49,22 @@ export function AddMemberModal({ open, onClose, onAdd, existingNames }: Props) {
                 <input
                   autoFocus required
                   value={name}
-                  onChange={e => setName(e.target.value)}
+                  onChange={e => {
+                    const val = e.target.value;
+                    setName(val);
+                    if (rankMemory[val]) {
+                      setRank(rankMemory[val]);
+                    }
+                  }}
+                  list="member-suggestions"
                   placeholder="ใส่ชื่อ..."
                   className="w-full px-6 py-4 bg-background border-none rounded-2xl focus:ring-2 focus:ring-primary/20 font-bold transition-all"
                 />
+                <datalist id="member-suggestions">
+                  {Object.keys(rankMemory).map(n => (
+                    <option key={n} value={n} />
+                  ))}
+                </datalist>
               </div>
 
               <div className="space-y-3">
@@ -69,9 +82,7 @@ export function AddMemberModal({ open, onClose, onAdd, existingNames }: Props) {
                     </label>
                   ))}
                 </div>
-                <p className="text-xs text-center font-bold text-primary/70 bg-primary/5 py-2 rounded-xl">
-                  {RANK_LEVEL_LABELS[rank]}
-                </p>
+
               </div>
 
               <button type="submit"

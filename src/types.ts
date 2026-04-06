@@ -3,7 +3,7 @@ export type Rank =
   | 'BG1' | 'BG2' | 'BG3' 
   | 'S-1' | 'S-2' | 'S-3' 
   | 'S1' | 'S2' | 'S3' 
-  | 'P-' | 'P' | 'P+';
+  | 'N' | 'P-' | 'P' | 'P+';
 
 export interface Member {
   id: string;
@@ -35,6 +35,7 @@ export interface Snack {
   name: string;
   price: number;
   icon: string;
+  image?: string; // URL path from public folder
 }
 
 export interface GameRecord {
@@ -68,54 +69,66 @@ export interface SessionRecord {
 }
 
 export const RANKS: Rank[] = [
-  'VIP1', 'VIP2', 'VIP3',
-  'BG1', 'BG2', 'BG3',
-  'S-1', 'S-2', 'S-3',
-  'S1', 'S2', 'S3',
-  'P-', 'P', 'P+'
+  'P+', 'P', 'P-', 'N',
+  'S3', 'S2', 'S1',
+  'S-3', 'S-2', 'S-1',
+  'BG3', 'BG2', 'BG1',
+  'VIP3', 'VIP2', 'VIP1'
 ];
 
 export const RANK_LEVEL_LABELS: Record<Rank, string> = {
-  'VIP1': 'อาชีพ (1)', 'VIP2': 'อาชีพ (2)', 'VIP3': 'อาชีพ (3)',
-  'BG1': 'สูงมาก (1)', 'BG2': 'สูงมาก (2)', 'BG3': 'สูงมาก (3)',
-  'S-1': 'สูง (-) (1)', 'S-2': 'สูง (-) (2)', 'S-3': 'สูง (-) (3)',
-  'S1': 'กลาง-สูง (1)', 'S2': 'กลาง-สูง (2)', 'S3': 'กลาง-สูง (3)',
-  'P-': 'ต้น-กลาง',
-  'P': 'ต้น',
-  'P+': 'มือใหม่',
+  'P+': '', 'P': '', 'P-': '', 'N': '',
+  'S3': '', 'S2': '', 'S1': '',
+  'S-3': '', 'S-2': '', 'S-1': '',
+  'BG3': '', 'BG2': '', 'BG1': '',
+  'VIP3': '', 'VIP2': '', 'VIP1': ''
 };
 
 export const RANK_COLORS: Record<Rank, string> = {
-  'VIP1': 'bg-error text-white',
-  'VIP2': 'bg-error text-white',
-  'VIP3': 'bg-error text-white',
-  'BG1': 'bg-error text-white',
-  'BG2': 'bg-error text-white',
-  'BG3': 'bg-error text-white',
-  'S-1': 'bg-secondary text-white',
-  'S-2': 'bg-secondary text-white',
-  'S-3': 'bg-secondary text-white',
-  'S1': 'bg-secondary text-white',
-  'S2': 'bg-secondary text-white',
-  'S3': 'bg-secondary text-white',
-  'P-': 'bg-tertiary text-white',
-  'P': 'bg-tertiary text-white',
   'P+': 'bg-tertiary text-white',
+  'P': 'bg-tertiary text-white',
+  'P-': 'bg-tertiary text-white',
+  'N': 'bg-tertiary text-white',
+  'S3': 'bg-secondary text-white',
+  'S2': 'bg-secondary text-white',
+  'S1': 'bg-secondary text-white',
+  'S-3': 'bg-secondary text-white',
+  'S-2': 'bg-secondary text-white',
+  'S-1': 'bg-secondary text-white',
+  'BG3': 'bg-error text-white',
+  'BG2': 'bg-error text-white',
+  'BG1': 'bg-error text-white',
+  'VIP3': 'bg-error text-white',
+  'VIP2': 'bg-error text-white',
+  'VIP1': 'bg-error text-white',
 };
 
 export const RANK_WEIGHTS: Record<Rank, number> = {
-  'VIP1': 15, 'VIP2': 14, 'VIP3': 13,
-  'BG1': 12, 'BG2': 11, 'BG3': 10,
-  'S-1': 9, 'S-2': 8, 'S-3': 7,
-  'S1': 6, 'S2': 5, 'S3': 4,
-  'P-': 3,
-  'P': 2,
-  'P+': 1,
+  'P+': 16,
+  'P': 15,
+  'P-': 14,
+  'N': 13,
+  'S3': 12, 'S2': 11, 'S1': 10,
+  'S-3': 9, 'S-2': 8, 'S-1': 7,
+  'BG3': 6, 'BG2': 5, 'BG1': 4,
+  'VIP3': 3, 'VIP2': 2, 'VIP1': 1,
 };
 
 export const DEFAULT_SNACKS: Snack[] = [
-  { id: 'water', name: 'น้ำเปล่า', price: 10, icon: '💧' },
-  { id: 'gatorade', name: 'เกเตอเรด', price: 25, icon: '⚡' },
+  { id: 'water-s', name: 'น้ำเปล่า (เล็ก)', price: 10, icon: '💧', image: '/น้ำเล็ก.jpg' },
+  { id: 'water-l', name: 'น้ำเปล่า (ใหญ่)', price: 20, icon: '💧', image: '/น้ำ ใหญ่.jpg' },
+  { id: 'gatorade-s', name: 'เกเตอเรด (เล็ก)', price: 25, icon: '⚡', image: '/เกตาเล็ต เล็ก.jpg' },
+  { id: 'gatorade-l', name: 'เกเตอเรด (ใหญ่)', price: 40, icon: '⚡', image: '/เกตาเล็ต ใหญ่.jpg' },
+  { id: 'sponsor', name: 'สปอนเซอร์', price: 20, icon: '⚡', image: '/สปอนเซอร์.jpg' },
+  { id: 'm150', name: 'M-150', price: 15, icon: '🔥', image: '/M150.jpg' },
+  { id: 'pepsi', name: 'แป๊ปซี่', price: 20, icon: '🥤', image: '/แปปซี่.webp' },
+  { id: 'lipton-s', name: 'ลิปตัน (เล็ก)', price: 20, icon: '🥤', image: '/ลิปตันเล็ก.jpg' },
+  { id: 'lipton-l', name: 'ลิปตัน (ใหญ่)', price: 30, icon: '🥤', image: '/ลิบตันใหญ่.jpg' },
+  { id: 'kato', name: 'กาโตะ', price: 20, icon: '🧃', image: '/กาโตะ.jpg' },
+  { id: 'coconut', name: 'น้ำมะพร้าว', price: 25, icon: '🥥', image: '/น้ำมะพร้าว.jpg' },
+  { id: 'ichitan', name: 'อิชิตัน', price: 20, icon: '🍃', image: '/อิชิตัน.jpg' },
+  { id: 'oishi', name: 'โออิชิ', price: 20, icon: '🍃', image: '/โออิชิ.jpg' },
+  { id: 'vitamilk', name: 'ไวตามิ้ลค์', price: 15, icon: '🥛', image: '/ไวตามิล.jpg' },
+  { id: 'singha', name: 'เบียร์สิงห์', price: 60, icon: '🍺', image: '/เบียร์สิงห์.jpg' },
   { id: 'shuttle', name: 'ลูกแบด', price: 25, icon: '🏸' },
-  { id: 'snack', name: 'ขนม', price: 15, icon: '🍪' },
 ];
