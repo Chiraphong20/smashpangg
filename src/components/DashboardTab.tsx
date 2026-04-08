@@ -51,10 +51,10 @@ function CheckoutModal({ member, gameHistory, otherMembers, initialOthers = [], 
 }) {
   const [selectedOthers] = useState<string[]>(initialOthers);
   const myGames = gameHistory.filter(g => g.players.some(p => p.id === member.id));
-  
+
   const othersNames = otherMembers.filter(m => selectedOthers.includes(m.id)).map(m => m.name).join(', ');
   const totalBalance = member.balance + otherMembers.filter(m => selectedOthers.includes(m.id)).reduce((a, b) => a + b.balance, 0);
-  
+
   const [manualAmount, setManualAmount] = useState<number | null>(null);
   const displayAmount = manualAmount !== null ? manualAmount : totalBalance;
 
@@ -68,7 +68,7 @@ function CheckoutModal({ member, gameHistory, otherMembers, initialOthers = [], 
       <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
         onClick={e => e.stopPropagation()}
         className="bg-white rounded-[2.5rem] w-full max-w-2xl p-8 shadow-2xl relative z-10 max-h-[85vh] flex flex-col">
-        
+
         {/* Header */}
         <div className="flex items-center gap-5 mb-6">
           <div className="relative group/rank">
@@ -134,7 +134,7 @@ function CheckoutModal({ member, gameHistory, otherMembers, initialOthers = [], 
                     </div>
                     <div className="flex items-center gap-3">
                       {editingSnackIndex === idx ? (
-                        <input 
+                        <input
                           type="number"
                           autoFocus
                           value={tempPrice}
@@ -154,7 +154,7 @@ function CheckoutModal({ member, gameHistory, otherMembers, initialOthers = [], 
                           className="w-16 px-1.5 py-0.5 bg-white border border-primary/20 rounded text-xs font-black text-on-surface focus:ring-1 focus:ring-primary/20 outline-none"
                         />
                       ) : (
-                        <button 
+                        <button
                           onClick={() => {
                             if (!isReadOnly) {
                               setEditingSnackIndex(idx);
@@ -248,7 +248,7 @@ function CheckoutModal({ member, gameHistory, otherMembers, initialOthers = [], 
               <p className="text-[10px] font-black uppercase text-on-surface/30 tracking-widest mb-1">ยอดเงินที่รับมาจริง</p>
               <div className="flex items-baseline gap-1 group">
                 <span className="font-black text-2xl text-error/40 group-focus-within:text-error transition-colors">฿</span>
-                <input 
+                <input
                   type="number"
                   value={displayAmount}
                   onChange={(e) => setManualAmount(Number(e.target.value))}
@@ -295,7 +295,7 @@ function CheckoutModal({ member, gameHistory, otherMembers, initialOthers = [], 
               </div>
             )}
           </div>
-          
+
           {/* Warning for negative amounts */}
           {!isReadOnly && displayAmount < 0 && (
             <div className="bg-red-500/10 border border-red-500/20 p-4 rounded-2xl flex items-center gap-3">
@@ -313,10 +313,10 @@ function CheckoutModal({ member, gameHistory, otherMembers, initialOthers = [], 
 
 export function DashboardTab({
   members, courts, snacks, paymentHistory, gameHistory,
-  onAddSnack, onUpdateShuttles, onUpdateRank, onRemoveSnack, onUpdateSnackPrice, viewingSession, onCloseSession, 
+  onAddSnack, onUpdateShuttles, onUpdateRank, onRemoveSnack, onUpdateSnackPrice, viewingSession, onCloseSession,
   sessionHistory, onViewSession,
   onProcessPayment, onReOpen, onPullSession,
-  onAddCourt, isSidebarCollapsed, onCheckIn, onRemove, onResetDay, 
+  onAddCourt, isSidebarCollapsed, onCheckIn, onRemove, onResetDay,
   isSyncing, onImportLine
 }: Props) {
   const [selectedMember, setSelectedMember] = useState<Member | null>(null);
@@ -324,7 +324,7 @@ export function DashboardTab({
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [dbSearch, setDbSearch] = useState('');
   const [checkedIds, setCheckedIds] = useState<string[]>([]);
-  const [bulkCheckout, setBulkCheckout] = useState<{member: Member, others: string[]} | null>(null);
+  const [bulkCheckout, setBulkCheckout] = useState<{ member: Member, others: string[] } | null>(null);
   const [sortConfig, setSortConfig] = useState<{ key: 'default' | 'name' | 'shuttles' | 'balance', direction: 'asc' | 'desc' }>({ key: 'default', direction: 'desc' });
 
   const isReadOnly = !!viewingSession;
@@ -340,7 +340,7 @@ export function DashboardTab({
         if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA')) {
           if ((active as HTMLInputElement).type !== 'checkbox') return;
         }
-        
+
         const mainMember = currentMembers.find(m => m.id === checkedIds[0]);
         if (mainMember) {
           setBulkCheckout({ member: mainMember, others: checkedIds.slice(1) });
@@ -362,7 +362,7 @@ export function DashboardTab({
     if (!query) {
       return currentMembers.filter(m => m.status !== 'resting' || m.balance > 0);
     }
-    
+
     return currentMembers.filter(m => m.name.toLowerCase().includes(query));
   }, [currentMembers, dbSearch, isReadOnly]);
 
@@ -431,14 +431,14 @@ export function DashboardTab({
         <div className="flex bg-background p-1.5 rounded-3xl gap-1.5 shadow-inner">
           <div className="relative group">
             <Calendar size={14} className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface/30 group-focus-within:text-primary transition-colors z-10" />
-            <input 
+            <input
               type="date"
               value={isReadOnly ? format(viewingSession!.date, 'yyyy-MM-dd') : format(new Date(), 'yyyy-MM-dd')}
               max={format(new Date(), 'yyyy-MM-dd')}
               onChange={(e) => {
                 const selected = e.target.value;
                 const today = format(new Date(), 'yyyy-MM-dd');
-                
+
                 if (selected === today) {
                   onCloseSession();
                 } else {
@@ -454,7 +454,7 @@ export function DashboardTab({
                       gameHistory: [],
                       paymentHistory: []
                     });
-                    
+
                     // Pull from API
                     onPullSession(selected);
                   }
@@ -463,7 +463,7 @@ export function DashboardTab({
               className="bg-white pl-10 pr-4 py-2.5 rounded-2xl font-black text-[10px] uppercase tracking-widest text-on-surface/60 outline-none border border-on-surface/5 focus:border-primary/20 appearance-none transition-all cursor-pointer min-w-[200px]"
             />
           </div>
-          
+
           {isReadOnly ? (
             <button
               onClick={onCloseSession}
@@ -542,8 +542,8 @@ export function DashboardTab({
         <div className="grid grid-cols-12 gap-2 px-6 py-3 bg-background text-[10px] font-black uppercase tracking-widest text-on-surface/40 border-b border-on-surface/5">
           <div className="col-span-3 flex items-center gap-3">
             {!isReadOnly && (
-              <input 
-                type="checkbox" 
+              <input
+                type="checkbox"
                 checked={checkedIds.length === sortedMembers.filter(m => m.balance > 0).length && checkedIds.length > 0}
                 onChange={(e) => {
                   if (e.target.checked) setCheckedIds(sortedMembers.filter(m => m.balance > 0).map(m => m.id));
@@ -620,9 +620,9 @@ export function DashboardTab({
                 {/* Name + rank */}
                 <div className="col-span-3 flex items-center gap-3 min-w-0">
                   {!isReadOnly && m.balance > 0 && (
-                    <input 
-                      type="checkbox" 
-                      checked={checkedIds.includes(m.id)} 
+                    <input
+                      type="checkbox"
+                      checked={checkedIds.includes(m.id)}
                       onClick={e => e.stopPropagation()}
                       onChange={(e) => {
                         setCheckedIds(prev => e.target.checked ? [...prev, m.id] : prev.filter(id => id !== m.id));
@@ -656,8 +656,8 @@ export function DashboardTab({
                     <div className="flex items-center gap-2">
                       <span className={cn('text-[9px] font-black px-1.5 py-0.5 rounded-full transition-all',
                         isSettled ? 'bg-green-500 text-white' :
-                        m.status === 'playing' ? 'bg-green-100 text-green-700' :
-                        m.status === 'waiting' ? 'bg-secondary/10 text-secondary' : 'bg-on-surface/5 text-on-surface/30')}>
+                          m.status === 'playing' ? 'bg-green-100 text-green-700' :
+                            m.status === 'waiting' ? 'bg-secondary/10 text-secondary' : 'bg-on-surface/5 text-on-surface/30')}>
                         {isSettled ? '✓ จ่ายแล้ว' : m.status === 'playing' ? '🏸 เล่น' : m.status === 'waiting' ? '⌛ รอ' : '😴 พักค้าง'}
                       </span>
                       {m.status === 'resting' && !isReadOnly && (
@@ -731,12 +731,12 @@ export function DashboardTab({
                       </span>
                       {!isReadOnly && (
                         <button
-                          onClick={(e) => { 
-                            e.stopPropagation(); 
-                            const msg = m.balance > 0 
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            const msg = m.balance > 0
                               ? `ถอนชื่อ ${m.name} ออกจากรายการวันนี้เหรอ? (มียอดค้างชำระอยู่ ฿${m.balance.toFixed(0)} ยอดเงินจะถูกลบไปด้วย)`
                               : `ถอนชื่อ ${m.name} ออกจากรายการวันนี้เหรอ?`;
-                            if(confirm(msg)) onRemove(m.id); 
+                            if (confirm(msg)) onRemove(m.id);
                           }}
                           className="p-1.5 rounded-lg text-on-surface/20 hover:text-error hover:bg-error/10 transition-all opacity-40 hover:opacity-100 group-hover:opacity-100 flex items-center justify-center gap-1.5 text-[10px] font-bold"
                           title="ถอนชื่อจากกระดาน (เอาออกเพราะไม่มา/ใส่ผิด)"
@@ -755,11 +755,11 @@ export function DashboardTab({
         {/* Table footer totals */}
         <div className="relative">
           {checkedIds.length > 0 && (
-            <motion.div 
+            <motion.div
               initial={{ y: 20, opacity: 0 }} animate={{ y: 0, opacity: 1 }}
               className="absolute inset-x-0 -top-20 z-10 px-6 flex justify-end"
             >
-              <button 
+              <button
                 onClick={() => {
                   const mainMember = filteredMembers.find(m => m.id === checkedIds[0]);
                   if (mainMember) {

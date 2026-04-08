@@ -75,17 +75,17 @@ export default function App() {
           fetch(`${API_BASE}/api/state`).catch(() => null),
           fetch(`${API_BASE}/api/master`).catch(() => null)
         ]);
-        
+
         let loadedState: any = null;
         if (stateRes && stateRes.ok) loadedState = await stateRes.json();
-        
+
         let loadedMaster: any = null;
         if (masterRes && masterRes.ok) loadedMaster = await masterRes.json();
 
         // 1) Load basic states
         if (loadedState?.courts) setCourts(loadedState.courts);
         else setCourts(INITIAL_COURTS);
-        
+
         if (loadedState?.gameHistory) setGameHistory(loadedState.gameHistory);
         if (loadedState?.paymentHistory) setPaymentHistory(loadedState.paymentHistory);
         if (loadedState?.sessionHistory) setSessionHistory(loadedState.sessionHistory);
@@ -100,11 +100,11 @@ export default function App() {
         // 2) Load and Merge Master <-> State
         let activeMembers: Member[] = loadedState?.members || [...INITIAL_MEMBERS];
         let combinedRankMemory = loadedState?.rankMemory || {};
-        
+
         if (loadedMaster?.rankMemory) {
           combinedRankMemory = { ...combinedRankMemory, ...loadedMaster.rankMemory };
         }
-        
+
         if (loadedMaster?.members) {
           loadedMaster.members.forEach((masterMem: Member) => {
             combinedRankMemory[masterMem.name] = masterMem.rank;
@@ -117,7 +117,7 @@ export default function App() {
 
         setMembers(activeMembers);
         setRankMemory(combinedRankMemory);
-        
+
       } catch (err) {
         console.error('Failed to load initial data from DB:', err);
       } finally {
@@ -133,7 +133,7 @@ export default function App() {
     const handler = setTimeout(async () => {
       // Don't save empty states over initial real DB states before API finishes pulling
       // if (members.length === 0 && isSyncing) return;
-      
+
       try {
         await fetch(`${API_BASE}/api/state`, {
           method: 'POST',
@@ -179,7 +179,7 @@ export default function App() {
   const resetDay = async () => {
     if (!confirm('คุณแน่ใจหรือไม่ว่าต้องการเริ่มวันใหม่? (ล้างประวัติการตีและรีเซ็ตคอร์ด)')) return;
     saveSession();
-    
+
     // Sync session to the DB
     setIsSyncing(true);
     try {
@@ -215,12 +215,12 @@ export default function App() {
       status: 'resting',
       checkInTime: Date.now()
     })));
-    
+
   };
 
   const addMember = (name: string, rank: Rank) => {
     const existing = members.find(m => m.name.toLowerCase() === name.toLowerCase());
-    
+
     // Auto-update rank memory when a member is added manually
     setRankMemory(prev => ({ ...prev, [name]: rank }));
 
@@ -229,8 +229,8 @@ export default function App() {
         alert('ผู้เล่นนี้อยู่ในคิวแล้ว!');
         return;
       }
-      setMembers(prev => prev.map(m => m.name.toLowerCase() === name.toLowerCase() 
-        ? { ...m, status: 'waiting', checkInTime: Date.now(), rank } 
+      setMembers(prev => prev.map(m => m.name.toLowerCase() === name.toLowerCase()
+        ? { ...m, status: 'waiting', checkInTime: Date.now(), rank }
         : m
       ));
     } else {
@@ -240,15 +240,15 @@ export default function App() {
   };
 
   const checkInMember = (memberId: string) => {
-    setMembers(prev => prev.map(m => m.id === memberId 
-      ? { ...m, status: 'waiting', checkInTime: Date.now() } 
+    setMembers(prev => prev.map(m => m.id === memberId
+      ? { ...m, status: 'waiting', checkInTime: Date.now() }
       : m));
   };
 
   const removeFromSession = (memberId: string) => {
     setCourts(prev => prev.map(c => ({ ...c, players: c.players.map(p => p === memberId ? null : p) })));
-    setMembers(prev => prev.map(m => m.id === memberId ? { 
-      ...m, 
+    setMembers(prev => prev.map(m => m.id === memberId ? {
+      ...m,
       status: 'resting',
       gamesPlayed: 0,
       balance: 0,
@@ -643,14 +643,23 @@ export default function App() {
     const allMemberIds = [memberId, ...otherMemberIds];
     const otherMembers = members.filter(m => otherMemberIds.includes(m.id));
     const otherNames = otherMembers.map(m => m.name).join(', ');
-    
+
     // Check if partial
     const totalDebt = member.balance + otherMembers.reduce((sum, m) => sum + m.balance, 0);
     const isFullPayment = amount >= totalDebt;
-    
-    const note = otherMemberIds.length > 0 
-      ? `จ่ายรวม${isFullPayment ? '' : ' (บางส่วน)'}: ${otherNames}` 
+
+    const note = otherMemberIds.length > 0
+      ? `จ่ายรวม${isFullPayment ? '' : ' (บางส่วน)'}: ${otherNames}`
       : `${member.gamesPlayed} เกม${isFullPayment ? '' : ' (จ่ายบางส่วน)'}`;
+
+    const recordDetails = {
+      courtBalance: member.courtBalance + otherMembers.reduce((sum, m) => sum + m.courtBalance, 0),
+      shuttleBalance: member.shuttleBalance + otherMembers.reduce((sum, m) => sum + m.shuttleBalance, 0),
+      snackHistory: [
+        ...member.snackHistory,
+        ...otherMembers.flatMap(m => m.snackHistory)
+      ]
+    };
 
     const record: PaymentRecord = {
       id: Math.random().toString(36).substr(2, 9),
@@ -661,6 +670,7 @@ export default function App() {
       timestamp: Date.now(),
       method,
       note,
+      details: recordDetails
     };
 
     setPaymentHistory(prev => [record, ...prev]);
@@ -668,12 +678,12 @@ export default function App() {
     setMembers(prev => {
       let remainingPayment = amount;
       const next = [...prev];
-      
+
       for (const id of allMemberIds) {
         const idx = next.findIndex(m => m.id === id);
         if (idx === -1) continue;
         const m = { ...next[idx] };
-        
+
         if (remainingPayment <= 0) break;
 
         const debtToClear = Math.min(m.balance, remainingPayment);
@@ -692,20 +702,20 @@ export default function App() {
         } else {
           // Adjust granular balances down
           let leftToClear = debtToClear;
-          
+
           const snackClear = Math.min(m.snackBalance, leftToClear);
           m.snackBalance -= snackClear;
           leftToClear -= snackClear;
-          
+
           const courtClear = Math.min(m.courtBalance, leftToClear);
           m.courtBalance -= courtClear;
           leftToClear -= courtClear;
-          
+
           const shuttleClear = Math.min(m.shuttleBalance, leftToClear);
           m.shuttleBalance -= shuttleClear;
           leftToClear -= shuttleClear;
         }
-        
+
         next[idx] = m;
       }
       return next;
@@ -713,8 +723,8 @@ export default function App() {
   };
 
   const reOpenSession = (memberId: string) => {
-    setMembers(prev => prev.map(m => m.id === memberId 
-      ? { ...m, status: 'waiting', checkInTime: Date.now() } 
+    setMembers(prev => prev.map(m => m.id === memberId
+      ? { ...m, status: 'waiting', checkInTime: Date.now() }
       : m));
   };
 
@@ -733,7 +743,7 @@ export default function App() {
 
   const importMembers = (list: { name: string; rank: Rank }[], isSessionImport = false) => {
     const status: Member['status'] = isSessionImport ? 'waiting' : 'resting';
-    
+
     setRankMemory(prev => {
       const next = { ...prev };
       list.forEach(item => { next[item.name] = item.rank; });
@@ -743,7 +753,7 @@ export default function App() {
     setMembers(prev => {
       const now = Date.now();
       const current = [...prev];
-      
+
       list.forEach((item, i) => {
         const existingIndex = current.findIndex(m => m.name.trim().toLowerCase() === item.name.trim().toLowerCase());
         if (existingIndex !== -1) {
@@ -756,70 +766,70 @@ export default function App() {
           };
         } else {
           // New member
-            current.push({
-              id: Math.random().toString(36).substr(2, 9),
-              name: item.name, 
-              rank: item.rank,
-              gamesPlayed: 0,
-              checkInTime: now + i,
-              status: status,
-              balance: 0, courtBalance: 0, shuttleBalance: 0, snackBalance: 0,
-              shuttleCount: 0,
-              snackHistory: [],
-              paidCourtFee: false,
-            });
-          }
-        });
-        // Sync to cloud removed
-        return current;
+          current.push({
+            id: Math.random().toString(36).substr(2, 9),
+            name: item.name,
+            rank: item.rank,
+            gamesPlayed: 0,
+            checkInTime: now + i,
+            status: status,
+            balance: 0, courtBalance: 0, shuttleBalance: 0, snackBalance: 0,
+            shuttleCount: 0,
+            snackHistory: [],
+            paidCourtFee: false,
+          });
+        }
       });
-    };
-  
-    const removeMember = (memberId: string) => {
-      if (!confirm('ยืนยันการลบสมาชิกออกจากฐานข้อมูลถาวร? (จะหายไปจาก Cloud ด้วย)')) return;
-      setCourts(prev => prev.map(c => ({ ...c, players: c.players.map(p => p === memberId ? null : p) })));
-      setMembers(prev => {
-        const next = prev.filter(m => m.id !== memberId);
-        return next;
-      });
-    };
-  
-    const bulkCheckIn = (memberIds: string[]) => {
-      setMembers(prev => prev.map(m => memberIds.includes(m.id) ? { ...m, status: 'waiting', checkInTime: Date.now() } : m));
-    };
-  
-    const bulkRemove = (memberIds: string[]) => {
-      if (!confirm(`ยืนยันการลบสมาชิก ${memberIds.length} คนออกจากฐานข้อมูลถาวร? (จะหายไปจาก Cloud ด้วย)`)) return;
-      setCourts(prev => prev.map(c => ({ ...c, players: c.players.map(p => memberIds.includes(p as string) ? null : p) })));
-      setMembers(prev => {
-        const next = prev.filter(m => !memberIds.includes(m.id));
-        return next;
-      });
-    };
-  
-    const bulkUpdateRank = (memberIds: string[], rank: Rank) => {
-      setMembers(prev => {
-        const next = prev.map(m => memberIds.includes(m.id) ? { ...m, rank } : m);
-        return next;
-      });
-      const names = members.filter(m => memberIds.includes(m.id)).map(m => m.name);
-      setRankMemory(prev => {
-        const next = { ...prev };
-        names.forEach(n => next[n] = rank);
-        return next;
-      });
-    };
-  
-    const tabs = [
-      { id: 'dashboard', icon: LayoutDashboard, label: 'ภาพรวม' },
-      { id: 'members', icon: Users, label: 'สมาชิก' },
-      { id: 'courts', icon: Trophy, label: 'คอร์ด' },
-      { id: 'logs', icon: History, label: 'บันทึก' },
-      { id: 'settings', icon: Settings, label: 'ตั้งค่าระบบ' },
-    ];
-  
-    return (
-      <>
+      // Sync to cloud removed
+      return current;
+    });
+  };
+
+  const removeMember = (memberId: string) => {
+    if (!confirm('ยืนยันการลบสมาชิกออกจากฐานข้อมูลถาวร? (จะหายไปจาก Cloud ด้วย)')) return;
+    setCourts(prev => prev.map(c => ({ ...c, players: c.players.map(p => p === memberId ? null : p) })));
+    setMembers(prev => {
+      const next = prev.filter(m => m.id !== memberId);
+      return next;
+    });
+  };
+
+  const bulkCheckIn = (memberIds: string[]) => {
+    setMembers(prev => prev.map(m => memberIds.includes(m.id) ? { ...m, status: 'waiting', checkInTime: Date.now() } : m));
+  };
+
+  const bulkRemove = (memberIds: string[]) => {
+    if (!confirm(`ยืนยันการลบสมาชิก ${memberIds.length} คนออกจากฐานข้อมูลถาวร? (จะหายไปจาก Cloud ด้วย)`)) return;
+    setCourts(prev => prev.map(c => ({ ...c, players: c.players.map(p => memberIds.includes(p as string) ? null : p) })));
+    setMembers(prev => {
+      const next = prev.filter(m => !memberIds.includes(m.id));
+      return next;
+    });
+  };
+
+  const bulkUpdateRank = (memberIds: string[], rank: Rank) => {
+    setMembers(prev => {
+      const next = prev.map(m => memberIds.includes(m.id) ? { ...m, rank } : m);
+      return next;
+    });
+    const names = members.filter(m => memberIds.includes(m.id)).map(m => m.name);
+    setRankMemory(prev => {
+      const next = { ...prev };
+      names.forEach(n => next[n] = rank);
+      return next;
+    });
+  };
+
+  const tabs = [
+    { id: 'dashboard', icon: LayoutDashboard, label: 'ภาพรวม' },
+    { id: 'members', icon: Users, label: 'สมาชิก' },
+    { id: 'courts', icon: Trophy, label: 'คอร์ด' },
+    { id: 'logs', icon: History, label: 'บันทึก' },
+    { id: 'settings', icon: Settings, label: 'ตั้งค่าระบบ' },
+  ];
+
+  return (
+    <>
       <AnimatePresence>
         {isInitialLoading && <SplashScreen key="splash" />}
       </AnimatePresence>
@@ -839,7 +849,7 @@ export default function App() {
               </motion.div>
             )}
           </div>
-  
+
           <nav className="flex-1 space-y-1">
             {tabs.map(item => (
               <button key={item.id} onClick={() => setActiveTab(item.id as Tab)}
@@ -852,7 +862,7 @@ export default function App() {
               </button>
             ))}
           </nav>
-  
+
           <div className="mt-auto pt-4 border-t border-on-surface/5 space-y-4">
             {!isSidebarCollapsed ? (
               <div className="bg-primary/5 p-4 rounded-2xl">
@@ -866,7 +876,7 @@ export default function App() {
                 <Banknote size={20} />
               </div>
             )}
-  
+
             <button onClick={() => setShowManageProducts(true)}
               title={isSidebarCollapsed ? "จัดการสินค้า" : ""}
               className={cn("w-full flex items-center text-primary/80 font-bold hover:bg-primary/5 rounded-xl transition-colors",
@@ -874,7 +884,7 @@ export default function App() {
               <ShoppingCart size={18} className="shrink-0" />
               {!isSidebarCollapsed && <span>จัดการสินค้า</span>}
             </button>
-            
+
             <button onClick={() => setShowImport(true)}
               title={isSidebarCollapsed ? "นำเข้าจากไลน์" : ""}
               className={cn("w-full flex items-center text-secondary/80 font-bold hover:bg-secondary/5 rounded-xl transition-colors",
@@ -882,7 +892,7 @@ export default function App() {
               <FileText size={18} className="shrink-0" />
               {!isSidebarCollapsed && <span>นำเข้าจากไลน์</span>}
             </button>
-  
+
             {/* Cloud Status Indicator */}
             <div className="px-5 pb-6">
               <div className="flex items-center gap-3">
@@ -891,14 +901,14 @@ export default function App() {
                   {isSyncing && <div className="absolute inset-0 w-2.5 h-2.5 rounded-full bg-primary animate-ping opacity-40" />}
                 </div>
                 {!isSidebarCollapsed && (
-                   <span className={cn("text-[9px] font-black uppercase tracking-[0.2em] transition-colors duration-300", isSyncing ? "text-primary italic" : "text-on-surface/30")}>
-                     {isSyncing ? "Cloud Synchronizing..." : "DB Connected & Synced"}
-                   </span>
+                  <span className={cn("text-[9px] font-black uppercase tracking-[0.2em] transition-colors duration-300", isSyncing ? "text-primary italic" : "text-on-surface/30")}>
+                    {isSyncing ? "Cloud Synchronizing..." : "DB Connected & Synced"}
+                  </span>
                 )}
               </div>
             </div>
 
-            <button 
+            <button
               onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
               className="w-full flex items-center justify-center p-3 text-on-surface/20 hover:text-on-surface/60 transition-colors"
             >
@@ -906,132 +916,132 @@ export default function App() {
             </button>
           </div>
         </aside>
-  
+
         {/* Main Container */}
         <div className={cn(
           "flex-1 transition-all duration-300",
           isSidebarCollapsed ? "lg:ml-20" : "lg:ml-64"
         )}>
           {/* Modals */}
-          <AddMemberModal 
-            open={showAddMember} 
-            onClose={() => setShowAddMember(false)} 
-            onAdd={addMember} 
-            existingNames={members.map(m => m.name)} 
-            rankMemory={rankMemory} 
+          <AddMemberModal
+            open={showAddMember}
+            onClose={() => setShowAddMember(false)}
+            onAdd={addMember}
+            existingNames={members.map(m => m.name)}
+            rankMemory={rankMemory}
           />
           <AddCourtModal open={showAddCourt} onClose={() => setShowAddCourt(false)} onAdd={addCourt} />
           <ManageProductsModal open={showManageProducts} onClose={() => setShowManageProducts(false)} snacks={snacks} onSave={setSnacks} />
-          <ImportMembersModal 
-            open={showImport} 
-            onClose={() => setShowImport(false)} 
-            onImport={importMembers} 
-            rankMemory={rankMemory} 
-            existingNames={members.map(m => m.name)} 
+          <ImportMembersModal
+            open={showImport}
+            onClose={() => setShowImport(false)}
+            onImport={importMembers}
+            rankMemory={rankMemory}
+            existingNames={members.map(m => m.name)}
             isSessionMode={importIsSession}
           />
-  
-        {/* Main Content Area */}
-        <main className="p-4 md:p-6 court-texture pb-24 lg:pb-6 min-h-screen">
-          <AnimatePresence mode="wait">
-            <motion.div key={activeTab} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.2 }}>
-              {activeTab === 'dashboard' && (
-                <DashboardTab
-                  members={members} courts={courts} snacks={snacks}
-                  paymentHistory={paymentHistory} gameHistory={gameHistory}
-                  onUpdateShuttles={updateMemberShuttles}
-                  onUpdateRank={updateMemberRank}
-                  onRemoveSnack={removeSnackFromMember}
-                  onUpdateSnackPrice={updateSnackPrice}
-                  viewingSession={viewingSession}
-                  onCloseSession={() => setViewingSession(null)}
-                  sessionHistory={sessionHistory}
-                  onViewSession={(s) => setViewingSession(s)}
-                  onProcessPayment={processPayment}
-                  onReOpen={reOpenSession}
-                  onPullSession={pullSessionData}
-                  isSyncing={isSyncing}
-                  onAddCourt={() => setShowAddCourt(true)}
-                  isSidebarCollapsed={isSidebarCollapsed}
-                  onCheckIn={checkInMember}
-                  onRemove={removeFromSession}
-                  onResetDay={resetDay}
-                  onAddSnack={addSnacksToMember}
-                  onImportLine={() => { setImportIsSession(true); setShowImport(true); }}
-                />
-              )}
-            {activeTab === 'logs' && (
-              <LogsTab
-                gameHistory={gameHistory}
-                sessionHistory={sessionHistory}
-                onViewSession={setViewingSession}
-                onActiveTab={setActiveTab}
-              />
-            )}
-            {activeTab === 'members' && (
-              <MembersTab
-                members={members}
-                searchQuery={searchQuery}
-                onSearch={setSearchQuery}
-                onRemove={removeMember}
-                onAddMember={() => { setImportIsSession(false); setShowAddMember(true); }}
-                onImportLine={() => { setImportIsSession(false); setShowImport(true); }}
-                onUpdateRank={updateMemberRank}
-                onUpdateName={updateMemberName}
-                onAddCourt={() => setShowAddCourt(true)}
-                onCheckIn={checkInMember}
-                onBulkCheckIn={bulkCheckIn}
-                onBulkRemove={bulkRemove}
-                onBulkUpdateRank={bulkUpdateRank}
-              />
-            )}
-            {activeTab === 'courts' && (
-              <CourtsTab
-                members={members} courts={courts} snacks={snacks}
-                searchQuery={searchQuery} gameHistory={gameHistory}
-                onAutoMatch={autoMatch} onStartGame={startGame} onResetCourt={resetCourt}
-                onRemovePlayer={removePlayerFromCourt} onAddPlayer={addPlayerToCourt}
-                onDeleteCourt={deleteCourt} onAddSnack={addSnacksToMember}
-                onEditGame={editGame} onUndoGame={undoGame} onUpdateCourt={setCourts}
-                minRankFilter={minRankFilter} setMinRankFilter={setMinRankFilter}
-                maxRankFilter={maxRankFilter} setMaxRankFilter={setMaxRankFilter}
-                onAddCourt={() => setShowAddCourt(true)}
-              />
-            )}
-            {activeTab === 'settings' && (
-              <SettingsTab
-                courtFeePerPerson={courtFeePerPerson}
-                setCourtFeePerPerson={setCourtFeePerPerson}
-                shuttlePrice={shuttlePrice}
-                setShuttlePrice={setShuttlePrice}
-                onSeedMockHistory={seedMockHistory}
-                onResetDay={resetDay}
-                onFactoryReset={factoryReset}
-                rankMemory={rankMemory}
-              />
-            )}
-          </motion.div>
-        </AnimatePresence>
-      </main>
-      </div>
 
-      {/* Mobile Nav */}
-      <nav className="lg:hidden fixed bottom-0 left-0 w-full bg-white/90 backdrop-blur-xl flex justify-around items-center px-4 pb-8 pt-3 z-50 border-t border-on-surface/5">
-        {tabs.map(item => (
-          <button key={item.id} onClick={() => setActiveTab(item.id as Tab)}
-            className={cn('flex flex-col items-center gap-1 p-2 rounded-2xl transition-all',
-              activeTab === item.id ? 'text-primary' : 'text-on-surface/40')}>
-            <item.icon size={22} />
-            <span className="text-[9px] font-black uppercase">{item.label}</span>
+          {/* Main Content Area */}
+          <main className="p-4 md:p-6 court-texture pb-24 lg:pb-6 min-h-screen">
+            <AnimatePresence mode="wait">
+              <motion.div key={activeTab} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.2 }}>
+                {activeTab === 'dashboard' && (
+                  <DashboardTab
+                    members={members} courts={courts} snacks={snacks}
+                    paymentHistory={paymentHistory} gameHistory={gameHistory}
+                    onUpdateShuttles={updateMemberShuttles}
+                    onUpdateRank={updateMemberRank}
+                    onRemoveSnack={removeSnackFromMember}
+                    onUpdateSnackPrice={updateSnackPrice}
+                    viewingSession={viewingSession}
+                    onCloseSession={() => setViewingSession(null)}
+                    sessionHistory={sessionHistory}
+                    onViewSession={(s) => setViewingSession(s)}
+                    onProcessPayment={processPayment}
+                    onReOpen={reOpenSession}
+                    onPullSession={pullSessionData}
+                    isSyncing={isSyncing}
+                    onAddCourt={() => setShowAddCourt(true)}
+                    isSidebarCollapsed={isSidebarCollapsed}
+                    onCheckIn={checkInMember}
+                    onRemove={removeFromSession}
+                    onResetDay={resetDay}
+                    onAddSnack={addSnacksToMember}
+                    onImportLine={() => { setImportIsSession(true); setShowImport(true); }}
+                  />
+                )}
+                {activeTab === 'logs' && (
+                  <LogsTab
+                    gameHistory={gameHistory}
+                    sessionHistory={sessionHistory}
+                    onViewSession={setViewingSession}
+                    onActiveTab={setActiveTab}
+                  />
+                )}
+                {activeTab === 'members' && (
+                  <MembersTab
+                    members={members}
+                    searchQuery={searchQuery}
+                    onSearch={setSearchQuery}
+                    onRemove={removeMember}
+                    onAddMember={() => { setImportIsSession(false); setShowAddMember(true); }}
+                    onImportLine={() => { setImportIsSession(false); setShowImport(true); }}
+                    onUpdateRank={updateMemberRank}
+                    onUpdateName={updateMemberName}
+                    onAddCourt={() => setShowAddCourt(true)}
+                    onCheckIn={checkInMember}
+                    onBulkCheckIn={bulkCheckIn}
+                    onBulkRemove={bulkRemove}
+                    onBulkUpdateRank={bulkUpdateRank}
+                  />
+                )}
+                {activeTab === 'courts' && (
+                  <CourtsTab
+                    members={members} courts={courts} snacks={snacks}
+                    searchQuery={searchQuery} gameHistory={gameHistory}
+                    onAutoMatch={autoMatch} onStartGame={startGame} onResetCourt={resetCourt}
+                    onRemovePlayer={removePlayerFromCourt} onAddPlayer={addPlayerToCourt}
+                    onDeleteCourt={deleteCourt} onAddSnack={addSnacksToMember}
+                    onEditGame={editGame} onUndoGame={undoGame} onUpdateCourt={setCourts}
+                    minRankFilter={minRankFilter} setMinRankFilter={setMinRankFilter}
+                    maxRankFilter={maxRankFilter} setMaxRankFilter={setMaxRankFilter}
+                    onAddCourt={() => setShowAddCourt(true)}
+                  />
+                )}
+                {activeTab === 'settings' && (
+                  <SettingsTab
+                    courtFeePerPerson={courtFeePerPerson}
+                    setCourtFeePerPerson={setCourtFeePerPerson}
+                    shuttlePrice={shuttlePrice}
+                    setShuttlePrice={setShuttlePrice}
+                    onSeedMockHistory={seedMockHistory}
+                    onResetDay={resetDay}
+                    onFactoryReset={factoryReset}
+                    rankMemory={rankMemory}
+                  />
+                )}
+              </motion.div>
+            </AnimatePresence>
+          </main>
+        </div>
+
+        {/* Mobile Nav */}
+        <nav className="lg:hidden fixed bottom-0 left-0 w-full bg-white/90 backdrop-blur-xl flex justify-around items-center px-4 pb-8 pt-3 z-50 border-t border-on-surface/5">
+          {tabs.map(item => (
+            <button key={item.id} onClick={() => setActiveTab(item.id as Tab)}
+              className={cn('flex flex-col items-center gap-1 p-2 rounded-2xl transition-all',
+                activeTab === item.id ? 'text-primary' : 'text-on-surface/40')}>
+              <item.icon size={22} />
+              <span className="text-[9px] font-black uppercase">{item.label}</span>
+            </button>
+          ))}
+          <button onClick={() => setShowManageProducts(true)}
+            className="flex flex-col items-center gap-1 p-2 rounded-2xl transition-all text-on-surface/40">
+            <ShoppingCart size={22} />
+            <span className="text-[9px] font-black uppercase">สินค้า</span>
           </button>
-        ))}
-        <button onClick={() => setShowManageProducts(true)}
-          className="flex flex-col items-center gap-1 p-2 rounded-2xl transition-all text-on-surface/40">
-          <ShoppingCart size={22} />
-          <span className="text-[9px] font-black uppercase">สินค้า</span>
-        </button>
-      </nav>
-    </div>
+        </nav>
+      </div>
     </>
   );
 }
@@ -1039,30 +1049,30 @@ export default function App() {
 // ── SplashScreen Component ───────────────────────────────────────────────────
 function SplashScreen() {
   return (
-    <motion.div 
-      initial={{ opacity: 1 }} 
-      exit={{ opacity: 0 }} 
+    <motion.div
+      initial={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
       transition={{ duration: 0.8, ease: "easeInOut" }}
       className="fixed inset-0 z-[1000] bg-on-surface flex flex-col items-center justify-center overflow-hidden"
     >
       {/* Background Orbs */}
       <div className="absolute top-1/4 -left-20 w-96 h-96 bg-primary/20 rounded-full blur-[120px] animate-pulse" />
       <div className="absolute bottom-1/4 -right-20 w-96 h-96 bg-secondary/10 rounded-full blur-[120px]" />
-      
+
       <div className="relative flex flex-col items-center">
         {/* Animated Logo */}
-        <motion.div 
-          initial={{ scale: 0.8, opacity: 0 }} 
-          animate={{ scale: 1, opacity: 1 }} 
+        <motion.div
+          initial={{ scale: 0.8, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
           transition={{ duration: 0.8, delay: 0.2, type: "spring" }}
           className="w-24 h-24 bg-primary rounded-[2.5rem] flex items-center justify-center text-white italic text-5xl font-black shadow-[0_0_50px_rgba(var(--primary-rgb),0.4)] mb-8"
         >
           S
         </motion.div>
 
-        <motion.div 
-          initial={{ y: 20, opacity: 0 }} 
-          animate={{ y: 0, opacity: 1 }} 
+        <motion.div
+          initial={{ y: 20, opacity: 0 }}
+          animate={{ y: 0, opacity: 1 }}
           transition={{ duration: 0.6, delay: 0.5 }}
           className="text-center"
         >
@@ -1072,20 +1082,20 @@ function SplashScreen() {
 
         {/* High-end loading bar */}
         <div className="mt-12 w-48 h-1 bg-white/10 rounded-full overflow-hidden relative">
-          <motion.div 
-            initial={{ left: "-100%" }} 
-            animate={{ left: "100%" }} 
+          <motion.div
+            initial={{ left: "-100%" }}
+            animate={{ left: "100%" }}
             transition={{ duration: 1.5, repeat: Infinity, ease: "easeInOut" }}
-            className="absolute top-0 bottom-0 w-1/2 bg-gradient-to-r from-transparent via-primary to-transparent" 
+            className="absolute top-0 bottom-0 w-1/2 bg-gradient-to-r from-transparent via-primary to-transparent"
           />
         </div>
-        
+
         <p className="mt-6 text-[9px] font-black text-white/20 uppercase tracking-widest animate-pulse">Synchronizing with Cloud DB...</p>
       </div>
 
       {/* Shuttlecock animation */}
-      <motion.div 
-        animate={{ 
+      <motion.div
+        animate={{
           y: [0, -20, 0],
           rotate: [0, 15, -15, 0]
         }}

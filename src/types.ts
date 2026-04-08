@@ -1,8 +1,8 @@
-export type Rank = 
-  | 'VIP1' | 'VIP2' | 'VIP3' 
-  | 'BG1' | 'BG2' | 'BG3' 
-  | 'S-1' | 'S-2' | 'S-3' 
-  | 'S1' | 'S2' | 'S3' 
+export type Rank =
+  | 'VIP1' | 'VIP2' | 'VIP3'
+  | 'BG1' | 'BG2' | 'BG3'
+  | 'S-1' | 'S-2' | 'S-3'
+  | 'S1' | 'S2' | 'S3'
   | 'N' | 'P-' | 'P' | 'P+';
 
 export interface Member {
@@ -58,6 +58,11 @@ export interface PaymentRecord {
   timestamp: number;
   method: string;
   note?: string;
+  details?: {
+    courtBalance: number;
+    shuttleBalance: number;
+    snackHistory: Array<{ id: string; name: string; price: number; time: number }>;
+  };
 }
 
 export interface SessionRecord {

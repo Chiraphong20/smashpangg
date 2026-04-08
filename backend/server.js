@@ -21,12 +21,31 @@ app.get('/api/health', (req, res) => {
   res.json({ status: 'ok' });
 });
 
+// Auto-migrate: Add 'details' column to payments if missing
+(async () => {
+  try {
+    await pool.query(`
+      ALTER TABLE payments ADD COLUMN IF NOT EXISTS details LONGTEXT NULL
+    `);
+    console.log('✅ DB migration: payments.details column ensured');
+  } catch (e) {
+    // MySQL < 8.0 doesn't support IF NOT EXISTS on ALTER TABLE
+    try {
+      await pool.query(`ALTER TABLE payments ADD COLUMN details LONGTEXT NULL`);
+      console.log('✅ DB migration: payments.details column added');
+    } catch (e2) {
+      // Column already exists - that's fine
+      console.log('ℹ️  payments.details column already exists');
+    }
+  }
+})();
+
 // PULL MASTER DATA
 app.get('/api/master', async (req, res) => {
   try {
     const [membersRows] = await pool.query('SELECT * FROM members');
     const [settingsRows] = await pool.query('SELECT * FROM settings WHERE id = 1');
-    
+
     // Format for React App
     const rankMemory = {};
     const membersList = membersRows.map(r => {
@@ -62,7 +81,7 @@ app.post('/api/master', async (req, res) => {
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
-    
+
     // Update settings
     if (settings) {
       await conn.query(
@@ -96,10 +115,10 @@ app.post('/api/master', async (req, res) => {
 app.post('/api/sync', async (req, res) => {
   const { timestamp, members, games, payments } = req.body;
   const conn = await pool.getConnection();
-  
+
   try {
     await conn.beginTransaction();
-    
+
     const sessionId = `session-${timestamp}`;
     const dateInt = new Date(timestamp).getTime();
 
@@ -113,7 +132,9 @@ app.post('/api/sync', async (req, res) => {
         'INSERT IGNORE INTO games (id, session_id, court_id, court_name, played_at, shuttles_used, shuttle_cost, court_fee) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
         [gId, sessionId, g.courtId, g.courtName, g.playedAt, g.shuttlesUsed, g.shuttleCostPerPerson, g.courtFeePerPerson]
       );
-      
+
+      // Delete old players for this game first (safe re-insert)
+      await conn.query('DELETE FROM game_players WHERE game_id = ?', [gId]);
       for (const p of (g.players || [])) {
         await conn.query(
           'INSERT INTO game_players (game_id, member_id, member_name, member_rank) VALUES (?, ?, ?, ?)',
@@ -125,9 +146,10 @@ app.post('/api/sync', async (req, res) => {
     // Insert Payments
     for (const p of (payments || [])) {
       const pId = p.id || `payment-${Date.now()}-${Math.random()}`;
+      const detailsStr = p.details ? JSON.stringify(p.details) : null;
       await conn.query(
-        'INSERT IGNORE INTO payments (id, session_id, member_id, member_name, member_rank, amount, method, note, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)',
-        [pId, sessionId, p.memberId, p.memberName, p.memberRank, p.amount, p.method, p.note || '', p.timestamp]
+        'INSERT IGNORE INTO payments (id, session_id, member_id, member_name, member_rank, amount, method, note, details, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        [pId, sessionId, p.memberId, p.memberName, p.memberRank, p.amount, p.method, p.note || '', detailsStr, p.timestamp]
       );
     }
 
@@ -149,12 +171,12 @@ app.get('/api/session', async (req, res) => {
 
   try {
     const startOfDay = new Date(date);
-    startOfDay.setHours(0,0,0,0);
+    startOfDay.setHours(0, 0, 0, 0);
     const endOfDay = new Date(date);
-    endOfDay.setHours(23,59,59,999);
+    endOfDay.setHours(23, 59, 59, 999);
 
     const [sessions] = await pool.query('SELECT * FROM sessions WHERE date >= ? AND date <= ? LIMIT 1', [startOfDay.getTime(), endOfDay.getTime()]);
-    
+
     if (sessions.length === 0) {
       return res.json({ date: startOfDay.getTime(), membersSnapshot: [], gameHistory: [], paymentHistory: [] });
     }
@@ -165,7 +187,7 @@ app.get('/api/session', async (req, res) => {
     // Get games
     const [games] = await pool.query('SELECT * FROM games WHERE session_id = ? ORDER BY played_at DESC', [sessionId]);
     const [players] = await pool.query('SELECT p.* FROM game_players p JOIN games g ON p.game_id = g.id WHERE g.session_id = ?', [sessionId]);
-    
+
     const formattedGames = games.map(g => {
       const gPlayers = players.filter(p => p.game_id === g.id).map(p => ({
         id: p.member_id, name: p.member_name, rank: p.member_rank
@@ -184,25 +206,48 @@ app.get('/api/session', async (req, res) => {
 
     // Get payments
     const [payments] = await pool.query('SELECT * FROM payments WHERE session_id = ? ORDER BY created_at DESC', [sessionId]);
-    const formattedPayments = payments.map(p => ({
-      id: p.id,
-      memberId: p.member_id,
-      memberName: p.member_name,
-      memberRank: p.member_rank,
-      amount: Number(p.amount),
-      method: p.method,
-      note: p.note,
-      timestamp: Number(p.created_at)
-    }));
+    const formattedPayments = payments.map(p => {
+      let parsedDetails = undefined;
+      if (p.details) {
+        try { parsedDetails = JSON.parse(p.details); } catch (e) { }
+      }
+      return {
+        id: p.id,
+        memberId: p.member_id,
+        memberName: p.member_name,
+        memberRank: p.member_rank,
+        amount: Number(p.amount),
+        method: p.method,
+        note: p.note,
+        details: parsedDetails,
+        timestamp: Number(p.created_at)
+      };
+    });
 
     // Reconstruct simplified members snapshot from games & payments for historical view
     const membersMap = new Map();
-    // (In a fuller implementation, we might save the exact members array snapshot into a JSON column in sessions table)
     
+    formattedGames.forEach(g => {
+      g.players.forEach(p => {
+        if (!membersMap.has(p.id)) {
+          membersMap.set(p.id, { id: p.id, name: p.name, rank: p.rank, gamesPlayed: 0, status: 'paid', balance: 0, courtBalance: 0, shuttleBalance: 0, snackBalance: 0, shuttleCount: 0, snackHistory: [], paidCourtFee: true, checkInTime: 0 });
+        }
+        membersMap.get(p.id).gamesPlayed += 1;
+      });
+    });
+    
+    formattedPayments.forEach(p => {
+      if (!membersMap.has(p.memberId)) {
+         membersMap.set(p.memberId, { id: p.memberId, name: p.memberName, rank: p.memberRank, gamesPlayed: 0, status: 'paid', balance: 0, courtBalance: 0, shuttleBalance: 0, snackBalance: 0, shuttleCount: 0, snackHistory: [], paidCourtFee: true, checkInTime: 0 });
+      }
+    });
+
+    const snapshot = Array.from(membersMap.values());
+
     res.json({
       id: sessionId,
       date: sessionDate,
-      membersSnapshot: [], // Since we don't save full snapshot in DB tables to keep it simple, we leave this empty or construct from payments
+      membersSnapshot: snapshot,
       gameHistory: formattedGames,
       paymentHistory: formattedPayments
     });
