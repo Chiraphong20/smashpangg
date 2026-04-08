@@ -338,13 +338,13 @@ export function CourtsTab({
     .sort((a, b) => a.gamesPlayed !== b.gamesPlayed ? a.gamesPlayed - b.gamesPlayed : a.checkInTime - b.checkInTime);
 
   const handleSelect = (slot: number, pid: string | null) => {
-    if (!selected || isActive) return;
+    if (!selected) return;
     if (pid === null) onRemovePlayer(selected.id, slot);
     else onAddPlayer(selected.id, slot, pid);
   };
 
   const handleDoubleClick = (m: Member) => {
-    if (!selected || isActive) return;
+    if (!selected) return;
     const empty = selected.players.findIndex(p => p === null);
     if (empty !== -1) onAddPlayer(selected.id, empty, m.id);
     else alert('ไม่มีสล็อตว่างในคอร์ดนี้');
@@ -616,13 +616,13 @@ export function CourtsTab({
                       <div className="grid grid-cols-2 gap-4 p-6 pb-10">
                         {[0, 1].map(i => (
                           <SlotCard key={i} slotIndex={i} courtId={selected.id} playerId={selected.players[i]} team="A"
-                            members={members} onSelect={id => handleSelect(i, id)} locked={isActive} />
+                            members={members} onSelect={id => handleSelect(i, id)} locked={false} />
                         ))}
                       </div>
                       <div className="grid grid-cols-2 gap-4 p-6 pt-10">
                         {[2, 3].map(i => (
                           <SlotCard key={i} slotIndex={i} courtId={selected.id} playerId={selected.players[i]} team="B"
-                            members={members} onSelect={id => handleSelect(i, id)} locked={isActive} />
+                            members={members} onSelect={id => handleSelect(i, id)} locked={false} />
                         ))}
                       </div>
                     </div>

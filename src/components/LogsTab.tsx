@@ -107,7 +107,7 @@ export function LogsTab({ gameHistory, sessionHistory, onViewSession, onActiveTa
                     <div className="flex items-center gap-1.5 p-1.5 bg-primary/5 rounded-xl border border-primary/10">
                       <div className="flex items-center -space-x-2">
                         {game.players.slice(0, 2).map((p, i) => (
-                          <div key={p.id} className={cn('w-8 h-8 rounded-lg border-2 border-white flex items-center justify-center font-black text-[10px] shadow-sm', RANK_COLORS[p.rank])}>
+                          <div key={`${p.id}-${i}`} className={cn('w-8 h-8 rounded-lg border-2 border-white flex items-center justify-center font-black text-[10px] shadow-sm', RANK_COLORS[p.rank])}>
                             {p.rank}
                           </div>
                         ))}
@@ -123,7 +123,7 @@ export function LogsTab({ gameHistory, sessionHistory, onViewSession, onActiveTa
                     <div className="flex items-center gap-1.5 p-1.5 bg-secondary/5 rounded-xl border border-secondary/10">
                       <div className="flex items-center -space-x-2">
                         {game.players.slice(2, 4).map((p, i) => (
-                          <div key={p.id} className={cn('w-8 h-8 rounded-lg border-2 border-white flex items-center justify-center font-black text-[10px] shadow-sm', RANK_COLORS[p.rank])}>
+                          <div key={`${p.id}-${i}`} className={cn('w-8 h-8 rounded-lg border-2 border-white flex items-center justify-center font-black text-[10px] shadow-sm', RANK_COLORS[p.rank])}>
                             {p.rank}
                           </div>
                         ))}

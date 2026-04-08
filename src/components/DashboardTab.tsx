@@ -1,5 +1,8 @@
 import { useState, useEffect, useMemo } from 'react';
-import { Trophy, Users, Banknote, TrendingUp, ChevronDown, ChevronUp, X, ShoppingCart, Plus, RefreshCw, Trash2, Clock, Search, Monitor, Calendar, History, CheckCircle2, Cloud, Upload, Download, UserPlus, FileText } from 'lucide-react';
+import { 
+  Users, TrendingUp, Calendar, Search, LogOut, Check, ChevronUp, ChevronDown, 
+  Trash2, ShoppingCart, UserPlus, Clock, Trophy, FileText, ChevronLeft, Bolt, Banknote, X, Plus, RefreshCw, Monitor, Cloud, Upload, Download, CheckCircle2, History 
+} from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { Member, Court, PaymentRecord, GameRecord, Snack, Rank, RANKS, RANK_COLORS, RANK_LEVEL_LABELS, SessionRecord, RANK_WEIGHTS } from '../types';
@@ -331,6 +334,7 @@ export function DashboardTab({
   const isReadOnly = !!viewingSession;
   const currentMembers = viewingSession ? viewingSession.membersSnapshot : members;
   const currentPayments = viewingSession ? viewingSession.paymentHistory : paymentHistory;
+  const currentGames = viewingSession ? viewingSession.gameHistory : gameHistory;
 
   // Keyboard shortcut: Press Enter to checkout selected members
   useEffect(() => {
@@ -422,9 +426,14 @@ export function DashboardTab({
   
   // Total Potential: Actual costs incurred today (Games + Shuttles + Snacks)
   const totalPotential = currentMembers.reduce((a, m) => {
-    const cost = m.courtBalance + m.shuttleBalance + m.snackBalance;
+    const cost = (m.courtBalance || 0) + (m.shuttleBalance || 0) + (m.snackBalance || 0);
     return a + cost;
   }, 0);
+  
+  const totalSnacks = currentMembers.reduce((a, m) => a + (m.snackBalance || 0), 0);
+  
+  // Calculate total shuttles from game history for 100% accuracy based on matches
+  const totalShuttles = (viewingSession?.gameHistory || gameHistory).reduce((a, g) => a + (g.shuttlesUsed || 0), 0);
 
   return (
     <div className="space-y-4">
@@ -511,10 +520,10 @@ export function DashboardTab({
       {/* ── Quick Stats ── */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
         {[
-          { label: 'รอลำดับ', value: waitingPlayers, icon: Clock, color: 'text-secondary', bg: 'bg-secondary/10' },
-          { label: 'กำลังเล่น', value: activePlayers, icon: Trophy, color: 'text-green-500', bg: 'bg-green-500/10' },
-          { label: 'ลูกค้าวันนี้', value: currentMembers.filter(m => m.gamesPlayed > 0 || m.status !== 'resting').length, icon: Users, color: 'text-primary', bg: 'bg-primary/10' },
-          { label: 'รายรับรวม (฿)', value: totalPotential.toLocaleString(), icon: TrendingUp, color: 'text-error', bg: 'bg-error/10' },
+          { label: 'จำนวนลูกวันนี้', value: totalShuttles.toFixed(1) + ' ลูก', icon: Bolt, color: 'text-secondary', bg: 'bg-secondary/10' },
+          { label: 'จำนวนลูกค้า', value: currentMembers.filter(m => m.gamesPlayed > 0 || m.status !== 'resting' || (m.balance ?? 0) > 0).length, icon: Users, color: 'text-primary', bg: 'bg-primary/10' },
+          { label: 'ยอดรวมกิจกรรม', value: '฿' + totalPotential.toLocaleString(), icon: TrendingUp, color: 'text-error', bg: 'bg-error/10' },
+          { label: 'ยอดขายสินค้า', value: '฿' + totalSnacks.toLocaleString(), icon: ShoppingCart, color: 'text-tertiary', bg: 'bg-tertiary/10' },
         ].map(s => (
           <div key={s.label} className="bg-white rounded-3xl p-5 shadow-sm border border-on-surface/5">
             <div className={cn('w-11 h-11 rounded-2xl flex items-center justify-center mb-3', s.bg)}>
@@ -762,31 +771,35 @@ export function DashboardTab({
                 </div>
 
                 {/* Total */}
-                <div className="col-span-2 text-right font-headline font-black text-xl pr-2">
-                  {isSettled ? (
-                    <CheckCircle2 size={24} className="text-green-500 ml-auto" />
-                  ) : (
-                    <div className="flex items-center justify-end gap-3">
-                      <span className={m.balance > 0 ? 'text-error' : 'text-on-surface/10'}>
-                        {m.balance > 0 ? `฿${m.balance.toFixed(0)}` : '✓'}
-                      </span>
+                <div className="col-span-2 text-right font-headline font-black text-xl pr-2 relative group-item">
+                  <div className="flex flex-col items-end">
+                    <div className="flex items-center gap-2">
                       {!isReadOnly && (
                         <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            const msg = m.balance > 0
-                              ? `ถอนชื่อ ${m.name} ออกจากรายการวันนี้เหรอ? (มียอดค้างชำระอยู่ ฿${m.balance.toFixed(0)} ยอดเงินจะถูกลบไปด้วย)`
-                              : `ถอนชื่อ ${m.name} ออกจากรายการวันนี้เหรอ?`;
-                            if (confirm(msg)) onRemove(m.id);
-                          }}
-                          className="p-1.5 rounded-lg text-on-surface/20 hover:text-error hover:bg-error/10 transition-all opacity-40 hover:opacity-100 group-hover:opacity-100 flex items-center justify-center gap-1.5 text-[10px] font-bold"
-                          title="ถอนชื่อจากกระดาน (เอาออกเพราะไม่มา/ใส่ผิด)"
+                          onClick={(e) => { e.stopPropagation(); onRemove(m.id); }}
+                          className="opacity-0 group-hover:opacity-100 p-1.5 text-on-surface/20 hover:text-error hover:bg-error/10 rounded-lg transition-all"
+                          title="ลบออกจากเซสชัน"
                         >
                           <Trash2 size={16} />
                         </button>
                       )}
+                      <span className={cn(
+                        isSettled ? "text-green-500" : (m.balance > 0 ? "text-error" : "text-on-surface/20")
+                      )}>
+                        ฿{(m.courtBalance + m.shuttleBalance + m.snackBalance).toFixed(0)}
+                      </span>
                     </div>
-                  )}
+                    {isSettled && (
+                      <span className="text-[9px] font-black text-green-500 uppercase tracking-widest flex items-center gap-1">
+                        <CheckCircle2 size={10} strokeWidth={3} /> ชำระแล้ว
+                      </span>
+                    )}
+                    {!isSettled && m.balance > 0 && (
+                      <span className="text-[9px] font-black text-error uppercase tracking-widest">
+                        ค้างชำระ
+                      </span>
+                    )}
+                  </div>
                 </div>
               </div>
             );
@@ -829,7 +842,7 @@ export function DashboardTab({
           <CheckoutModal
             member={bulkCheckout ? bulkCheckout.member : selectedMember!}
             initialOthers={bulkCheckout ? bulkCheckout.others : []}
-            gameHistory={gameHistory}
+            gameHistory={currentGames}
             otherMembers={currentMembers}
             onUpdateRank={onUpdateRank}
             onRemoveSnack={onRemoveSnack}

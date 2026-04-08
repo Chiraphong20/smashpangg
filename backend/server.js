@@ -24,18 +24,22 @@ app.get('/api/health', (req, res) => {
 // Auto-migrate: Add 'details' column to payments if missing
 (async () => {
   try {
-    await pool.query(`
-      ALTER TABLE payments ADD COLUMN IF NOT EXISTS details LONGTEXT NULL
-    `);
-    console.log('✅ DB migration: payments.details column ensured');
+    // Payments
+    await pool.query(`ALTER TABLE payments ADD COLUMN IF NOT EXISTS details JSON`);
+    
+    // Sessions: Add members_snapshot
+    await pool.query(`ALTER TABLE sessions ADD COLUMN IF NOT EXISTS members_snapshot LONGTEXT`);
+
+    console.log('✅ DB migration: members_snapshot and payments.details ensured');
   } catch (e) {
     // MySQL < 8.0 doesn't support IF NOT EXISTS on ALTER TABLE
     try {
       await pool.query(`ALTER TABLE payments ADD COLUMN details LONGTEXT NULL`);
-      console.log('✅ DB migration: payments.details column added');
+      await pool.query(`ALTER TABLE sessions ADD COLUMN members_snapshot LONGTEXT NULL`);
+      console.log('✅ DB migration: columns added');
     } catch (e2) {
       // Column already exists - that's fine
-      console.log('ℹ️  payments.details column already exists');
+      console.log('ℹ️  columns already exist');
     }
   }
 })();
@@ -121,9 +125,10 @@ app.post('/api/sync', async (req, res) => {
 
     const sessionId = `session-${timestamp}`;
     const dateInt = new Date(timestamp).getTime();
+    const membersSnapshot = JSON.stringify(members);
 
     // Insert Session
-    await conn.query('INSERT IGNORE INTO sessions (id, date, status) VALUES (?, ?, ?)', [sessionId, dateInt, 'completed']);
+    await conn.query('INSERT INTO sessions (id, date, status, members_snapshot) VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE members_snapshot = VALUES(members_snapshot)', [sessionId, dateInt, 'completed', membersSnapshot]);
 
     // Insert Games
     for (const g of (games || [])) {
@@ -170,12 +175,21 @@ app.get('/api/session', async (req, res) => {
   if (!date) return res.status(400).json({ error: 'Missing date parameter' });
 
   try {
-    const startOfDay = new Date(date);
-    startOfDay.setHours(0, 0, 0, 0);
-    const endOfDay = new Date(date);
-    endOfDay.setHours(23, 59, 59, 999);
+    // Robust date parsing (YYYY-MM-DD or timestamp)
+    let dateInt = Number(date);
+    if (isNaN(dateInt)) dateInt = new Date(date).getTime();
+    if (isNaN(dateInt)) return res.status(400).json({ error: 'Invalid date format' });
 
-    const [sessions] = await pool.query('SELECT * FROM sessions WHERE date >= ? AND date <= ? LIMIT 1', [startOfDay.getTime(), endOfDay.getTime()]);
+    const startOfDay = new Date(dateInt);
+    startOfDay.setHours(0, 0, 0, 0);
+    // Extend window to 36 hours (covering the full day + up to 12 PM next day)
+    // to catch sessions that started late and were saved the next morning.
+    const endWindow = new Date(startOfDay.getTime() + 36 * 60 * 60 * 1000);
+
+    const [sessions] = await pool.query(
+      'SELECT * FROM sessions WHERE date >= ? AND date <= ? ORDER BY date DESC LIMIT 1', 
+      [startOfDay.getTime(), endWindow.getTime()]
+    );
 
     if (sessions.length === 0) {
       return res.json({ date: startOfDay.getTime(), membersSnapshot: [], gameHistory: [], paymentHistory: [] });
@@ -183,6 +197,7 @@ app.get('/api/session', async (req, res) => {
 
     const sessionId = sessions[0].id;
     const sessionDate = Number(sessions[0].date);
+    const storedSnapshotJson = sessions[0].members_snapshot;
 
     // Get games
     const [games] = await pool.query('SELECT * FROM games WHERE session_id = ? ORDER BY played_at DESC', [sessionId]);
@@ -192,13 +207,26 @@ app.get('/api/session', async (req, res) => {
       const gPlayers = players.filter(p => p.game_id === g.id).map(p => ({
         id: p.member_id, name: p.member_name, rank: p.member_rank
       }));
+      
+      const shuttleCostPerPerson = Number(g.shuttle_cost);
+      let shuttlesUsed = g.shuttles_used;
+      
+      // RECONSTRUCT SHUTTLES USED: If the cost per person implies more shuttles 
+      // than recorded (common in legacy data), adjust shuttlesUsed for accurate summary.
+      // Calculation: (CostPerPerson * NumPlayers) / PricePerShuttle
+      const totalCostForGame = shuttleCostPerPerson * gPlayers.length;
+      const impliedShuttles = Math.round(totalCostForGame / defaultShuttlePrice);
+      if (impliedShuttles > shuttlesUsed) {
+        shuttlesUsed = impliedShuttles;
+      }
+
       return {
         id: g.id,
         courtId: g.court_id,
         courtName: g.court_name,
         playedAt: Number(g.played_at),
-        shuttlesUsed: g.shuttles_used,
-        shuttleCostPerPerson: Number(g.shuttle_cost),
+        shuttlesUsed: shuttlesUsed,
+        shuttleCostPerPerson: shuttleCostPerPerson,
         courtFeePerPerson: Number(g.court_fee),
         players: gPlayers
       };
@@ -224,60 +252,107 @@ app.get('/api/session', async (req, res) => {
       };
     });
 
-    // Reconstruct detailed members snapshot from games & payments for historical view
-    const membersMap = new Map();
-    
-    // Process Games for individual costs
-    formattedGames.forEach(g => {
-      g.players.forEach(p => {
-        if (!membersMap.has(p.id)) {
-          membersMap.set(p.id, { 
-            id: p.id, name: p.name, rank: p.rank, gamesPlayed: 0, status: 'paid', 
-            balance: 0, courtBalance: 0, shuttleBalance: 0, snackBalance: 0, 
-            shuttleCount: 0, snackHistory: [], paidCourtFee: true, checkInTime: 0 
+    // Try to use stored snapshot first for 100% data fidelity
+    let snapshot = null;
+    if (storedSnapshotJson) {
+      try { 
+        snapshot = JSON.parse(storedSnapshotJson); 
+      } catch (e) {
+        console.error('Error parsing stored members_snapshot:', e);
+      }
+    }
+
+    // GET SETTINGS for default court fee and shuttle price (used in fallback)
+    const [settings] = await pool.query('SELECT court_fee_per_person, shuttle_price FROM settings LIMIT 1');
+    const defaultCourtFee = Number(settings[0]?.court_fee_per_person || 40);
+    const defaultShuttlePrice = Number(settings[0]?.shuttle_price || 25);
+
+    // Reconstruct simplified members snapshot from games & payments for historical view (Fallback)
+    if (!snapshot || snapshot.length === 0) {
+      const membersMap = new Map();
+      
+      // Process Games for individual costs
+      formattedGames.forEach(g => {
+        g.players.forEach(p => {
+          if (!membersMap.has(p.id)) {
+            membersMap.set(p.id, { 
+              id: p.id, name: p.name, rank: p.rank, gamesPlayed: 0, status: 'paid', 
+              balance: 0, courtBalance: 0, shuttleBalance: 0, snackBalance: 0, 
+              shuttleCount: 0, snackHistory: [], paidCourtFee: true, checkInTime: 0 
+            });
+          }
+          const m = membersMap.get(p.id);
+          m.gamesPlayed += 1;
+          const gameFee = Number(g.courtFeePerPerson);
+          m.courtBalance += gameFee;
+          const sCost = Number(g.shuttleCostPerPerson);
+          m.shuttleBalance += sCost;
+          // Reconstruct shuttle quantity: based on the cost they paid / price per shuttle
+          // If each shuttle is ฿25 and they paid ฿25, they used 1 shuttle effectively.
+          m.shuttleCount += (sCost / defaultShuttlePrice);
+        });
+      });
+
+      // 1. BACKFILL: If courtBalance is still 0 (e.g. because game.court_fee was 0), 
+      // but they played games, apply a ONE-TIME default court fee.
+      membersMap.forEach(m => {
+        if ((m.courtBalance || 0) === 0 && m.gamesPlayed > 0) {
+          m.courtBalance = defaultCourtFee;
+        }
+        // Round shuttle count for neatness
+        m.shuttleCount = Math.round(m.shuttleCount * 10) / 10;
+      });
+      
+      // Process Payments for snack history and actual amount paid
+      const memberPaidTotal = new Map(); // Track how much they actually paid
+      formattedPayments.forEach(p => {
+        // 1. Add snack costs from payment details if they exists
+        if (p.details && p.details.snackHistory) {
+          p.details.snackHistory.forEach(s => {
+            if (!membersMap.has(p.memberId)) { // Create member if only payment exists
+              membersMap.set(p.memberId, { id: p.memberId, name: p.memberName, rank: p.memberRank, gamesPlayed: 0, status: 'paid', balance: 0, courtBalance: 0, shuttleBalance: 0, snackBalance: 0, shuttleCount: 0, snackHistory: [], paidCourtFee: true, checkInTime: 0 });
+            }
+            const m = membersMap.get(p.memberId);
+            m.snackHistory.push(s);
+            m.snackBalance += Number(s.price);
           });
         }
-        const m = membersMap.get(p.id);
-        m.gamesPlayed += 1;
-        m.courtBalance += Number(g.courtFeePerPerson);
-        m.shuttleBalance += Number(g.shuttleCostPerPerson);
-      });
-    });
-    
-    // Process Payments for snack history and actual amount paid
-    const memberPaidTotal = new Map(); // Track how much they actually paid
-    formattedPayments.forEach(p => {
-      // 1. Add snack costs from payment details if they exists
-      if (p.details && p.details.snackHistory) {
-        p.details.snackHistory.forEach(s => {
-          if (!membersMap.has(p.memberId)) { // Create member if only payment exists
-            membersMap.set(p.memberId, { id: p.memberId, name: p.memberName, rank: p.memberRank, gamesPlayed: 0, status: 'paid', balance: 0, courtBalance: 0, shuttleBalance: 0, snackBalance: 0, shuttleCount: 0, snackHistory: [], paidCourtFee: true, checkInTime: 0 });
-          }
-          const m = membersMap.get(p.memberId);
-          m.snackHistory.push(s);
-          m.snackBalance += Number(s.price);
+
+        // 2. Map included members (if any) to have their debt cleared in balance calc
+        const includedIds = p.details?.includedMemberIds || [p.memberId];
+        includedIds.forEach(id => {
+          const currentPaid = memberPaidTotal.get(id) || 0;
+          memberPaidTotal.set(id, currentPaid + (p.amount / includedIds.length)); 
         });
-      }
-
-      // 2. Map included members (if any) to have their debt cleared in balance calc
-      const includedIds = p.details?.includedMemberIds || [p.memberId];
-      includedIds.forEach(id => {
-        const currentPaid = memberPaidTotal.get(id) || 0;
-        // In history reconstruction, we don't know exactly how much went to whom if bulk paid,
-        // so we just track that they were 'covered'.
-        memberPaidTotal.set(id, currentPaid + (p.amount / includedIds.length)); 
       });
-    });
 
-    // Final balance calculation and status
-    membersMap.forEach((m, id) => {
-      const totalCost = m.courtBalance + m.shuttleBalance + m.snackBalance;
-      const paid = memberPaidTotal.get(id) || 0;
-      m.balance = Math.max(0, totalCost - paid);
-      m.status = m.balance > 0 ? 'resting' : 'paid'; // In history, if they didn't pay they are 'resting' with balance
-    });
+      // Final balance calculation and status (incorporate payments & snacks)
+      membersMap.forEach((m, id) => {
+        const totalPaid = memberPaidTotal.get(id) || 0;
+        // Total costs identified FROM GAMES
+        const gameCosts = (m.courtBalance || 0) + (m.shuttleBalance || 0);
+        
+        // RECONSTRUCT SNACKS: If they paid more than their court+shuttle cost, 
+        // and we have NO snack history, attribute the difference to snackBalance.
+        // This handles cases where older sync data lost the snack detail objects.
+        if (totalPaid > (gameCosts + (m.snackBalance || 0))) {
+          const diff = totalPaid - (gameCosts + (m.snackBalance || 0));
+          m.snackBalance = (m.snackBalance || 0) + diff;
+          m.snackHistory.push({ 
+            id: `re-snack-${Date.now()}-${id}`, 
+            name: 'สินค้า/น้ำ (กู้คืนจากยอดจ่าย)', 
+            price: diff, 
+            time: sessionDate 
+          });
+        }
 
-    const snapshot = Array.from(membersMap.values());
+        const totalIncurred = gameCosts + (m.snackBalance || 0);
+        m.balance = Math.max(0, totalIncurred - totalPaid);
+        m.status = m.balance > 0 ? 'resting' : 'paid'; 
+      });
+
+      snapshot = Array.from(membersMap.values());
+    }
 
     res.json({
       id: sessionId,
@@ -353,8 +428,12 @@ app.post('/api/resync', async (req, res) => {
     for (const session of sessionHistory) {
       const sessionId = session.id || `session-${session.date}`;
       const dateInt = Number(session.date);
+      const membersSnapshot = session.membersSnapshot ? JSON.stringify(session.membersSnapshot) : null;
 
-      await conn.query('INSERT IGNORE INTO sessions (id, date, status) VALUES (?, ?, ?)', [sessionId, dateInt, 'completed']);
+      await conn.query(
+        'INSERT INTO sessions (id, date, status, members_snapshot) VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE status = VALUES(status), members_snapshot = VALUES(members_snapshot)', 
+        [sessionId, dateInt, 'completed', membersSnapshot]
+      );
 
       for (const g of (session.gameHistory || [])) {
         const gId = g.id || `game-${g.playedAt}`;

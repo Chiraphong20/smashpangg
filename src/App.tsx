@@ -83,8 +83,11 @@ export default function App() {
         if (masterRes && masterRes.ok) loadedMaster = await masterRes.json();
 
         // 1) Load basic states
-        if (loadedState?.courts) setCourts(loadedState.courts);
-        else setCourts(INITIAL_COURTS);
+        if (loadedState?.courts && loadedState.courts.length > 0) {
+          setCourts(loadedState.courts);
+        } else {
+          setCourts(INITIAL_COURTS);
+        }
 
         if (loadedState?.gameHistory) setGameHistory(loadedState.gameHistory);
         if (loadedState?.paymentHistory) setPaymentHistory(loadedState.paymentHistory);
@@ -246,6 +249,7 @@ export default function App() {
   };
 
   const removeFromSession = (memberId: string) => {
+    if (!confirm('ยืนยันการลบรายชื่อออกจากเซสชันวันนี้?')) return;
     setCourts(prev => prev.map(c => ({ ...c, players: c.players.map(p => p === memberId ? null : p) })));
     setMembers(prev => prev.map(m => m.id === memberId ? {
       ...m,
@@ -472,7 +476,7 @@ export default function App() {
   // ── PLAYER MANAGEMENT ─────────────────────────────────────────────────────
   const removePlayerFromCourt = (courtId: string, slotIndex: number) => {
     const court = courts.find(c => c.id === courtId);
-    if (!court || court.status === 'active') return; // ห้ามเปลี่ยนขณะเล่นอยู่
+    if (!court) return; 
     const pid = court.players[slotIndex];
     if (!pid) return;
     setCourts(prev => prev.map(c => c.id === courtId
@@ -482,14 +486,25 @@ export default function App() {
 
   const addPlayerToCourt = (courtId: string, slotIndex: number, playerId: string) => {
     const court = courts.find(c => c.id === courtId);
-    if (court?.status === 'active') return; // ห้ามเปลี่ยนขณะเล่นอยู่
+    if (!court) return;
+
+    // Get the player currently in that slot (if any)
+    const oldPlayerId = court.players[slotIndex];
+
     setCourts(prev => prev.map(c => ({
       ...c,
       players: c.id === courtId
         ? c.players.map((p, i) => i === slotIndex ? playerId : p)
         : c.players.map(p => p === playerId ? null : p),
     })));
-    setMembers(prev => prev.map(m => m.id === playerId ? { ...m, status: 'playing' } : m));
+
+    setMembers(prev => prev.map(m => {
+      // New player going in
+      if (m.id === playerId) return { ...m, status: 'playing' };
+      // Old player being kicked out of THIS slot
+      if (m.id === oldPlayerId) return { ...m, status: 'waiting' };
+      return m;
+    }));
   };
 
   const addSnacksToMember = (memberId: string, addedSnacks: Snack[]) => {
