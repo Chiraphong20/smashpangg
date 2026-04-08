@@ -304,6 +304,60 @@ app.listen(port, '0.0.0.0', () => {
   console.log(`🚀 SmashIT Server running on port ${port}`);
 });
 
+// RE-SYNC: Recover all session data from system_states blob into proper tables
+app.post('/api/resync', async (req, res) => {
+  const conn = await pool.getConnection();
+  try {
+    const [rows] = await pool.query("SELECT state_value FROM system_states WHERE state_key = 'sessionHistory'");
+    if (rows.length === 0) return res.status(404).json({ error: 'No sessionHistory found in system_states' });
+
+    const sessionHistory = JSON.parse(rows[0].state_value);
+    let synced = 0;
+
+    await conn.beginTransaction();
+    for (const session of sessionHistory) {
+      const sessionId = session.id || `session-${session.date}`;
+      const dateInt = Number(session.date);
+
+      await conn.query('INSERT IGNORE INTO sessions (id, date, status) VALUES (?, ?, ?)', [sessionId, dateInt, 'completed']);
+
+      for (const g of (session.gameHistory || [])) {
+        const gId = g.id || `game-${g.playedAt}`;
+        await conn.query(
+          'INSERT IGNORE INTO games (id, session_id, court_id, court_name, played_at, shuttles_used, shuttle_cost, court_fee) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+          [gId, sessionId, g.courtId, g.courtName, g.playedAt, g.shuttlesUsed, g.shuttleCostPerPerson, g.courtFeePerPerson]
+        );
+        await conn.query('DELETE FROM game_players WHERE game_id = ?', [gId]);
+        for (const p of (g.players || [])) {
+          await conn.query(
+            'INSERT INTO game_players (game_id, member_id, member_name, member_rank) VALUES (?, ?, ?, ?)',
+            [gId, p.id, p.name, p.rank]
+          );
+        }
+      }
+
+      for (const p of (session.paymentHistory || [])) {
+        const pId = p.id || `pay-${p.timestamp}`;
+        const detailsStr = p.details ? JSON.stringify(p.details) : null;
+        await conn.query(
+          'INSERT IGNORE INTO payments (id, session_id, member_id, member_name, member_rank, amount, method, note, details, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+          [pId, sessionId, p.memberId, p.memberName, p.memberRank, p.amount, p.method, p.note || '', detailsStr, p.timestamp]
+        );
+      }
+      synced++;
+    }
+
+    await conn.commit();
+    res.json({ success: true, sessionsSynced: synced });
+  } catch (err) {
+    await conn.rollback();
+    console.error(err);
+    res.status(500).json({ error: err.message });
+  } finally {
+    conn.release();
+  }
+});
+
 // Fallback for SPA routing: serve index.html for all other requests
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, '../dist/index.html'));
