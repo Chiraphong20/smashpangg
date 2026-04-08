@@ -224,22 +224,57 @@ app.get('/api/session', async (req, res) => {
       };
     });
 
-    // Reconstruct simplified members snapshot from games & payments for historical view
+    // Reconstruct detailed members snapshot from games & payments for historical view
     const membersMap = new Map();
     
+    // Process Games for individual costs
     formattedGames.forEach(g => {
       g.players.forEach(p => {
         if (!membersMap.has(p.id)) {
-          membersMap.set(p.id, { id: p.id, name: p.name, rank: p.rank, gamesPlayed: 0, status: 'paid', balance: 0, courtBalance: 0, shuttleBalance: 0, snackBalance: 0, shuttleCount: 0, snackHistory: [], paidCourtFee: true, checkInTime: 0 });
+          membersMap.set(p.id, { 
+            id: p.id, name: p.name, rank: p.rank, gamesPlayed: 0, status: 'paid', 
+            balance: 0, courtBalance: 0, shuttleBalance: 0, snackBalance: 0, 
+            shuttleCount: 0, snackHistory: [], paidCourtFee: true, checkInTime: 0 
+          });
         }
-        membersMap.get(p.id).gamesPlayed += 1;
+        const m = membersMap.get(p.id);
+        m.gamesPlayed += 1;
+        m.courtBalance += Number(g.courtFeePerPerson);
+        m.shuttleBalance += Number(g.shuttleCostPerPerson);
       });
     });
     
+    // Process Payments for snack history and actual amount paid
+    const memberPaidTotal = new Map(); // Track how much they actually paid
     formattedPayments.forEach(p => {
-      if (!membersMap.has(p.memberId)) {
-         membersMap.set(p.memberId, { id: p.memberId, name: p.memberName, rank: p.memberRank, gamesPlayed: 0, status: 'paid', balance: 0, courtBalance: 0, shuttleBalance: 0, snackBalance: 0, shuttleCount: 0, snackHistory: [], paidCourtFee: true, checkInTime: 0 });
+      // 1. Add snack costs from payment details if they exists
+      if (p.details && p.details.snackHistory) {
+        p.details.snackHistory.forEach(s => {
+          if (!membersMap.has(p.memberId)) { // Create member if only payment exists
+            membersMap.set(p.memberId, { id: p.memberId, name: p.memberName, rank: p.memberRank, gamesPlayed: 0, status: 'paid', balance: 0, courtBalance: 0, shuttleBalance: 0, snackBalance: 0, shuttleCount: 0, snackHistory: [], paidCourtFee: true, checkInTime: 0 });
+          }
+          const m = membersMap.get(p.memberId);
+          m.snackHistory.push(s);
+          m.snackBalance += Number(s.price);
+        });
       }
+
+      // 2. Map included members (if any) to have their debt cleared in balance calc
+      const includedIds = p.details?.includedMemberIds || [p.memberId];
+      includedIds.forEach(id => {
+        const currentPaid = memberPaidTotal.get(id) || 0;
+        // In history reconstruction, we don't know exactly how much went to whom if bulk paid,
+        // so we just track that they were 'covered'.
+        memberPaidTotal.set(id, currentPaid + (p.amount / includedIds.length)); 
+      });
+    });
+
+    // Final balance calculation and status
+    membersMap.forEach((m, id) => {
+      const totalCost = m.courtBalance + m.shuttleBalance + m.snackBalance;
+      const paid = memberPaidTotal.get(id) || 0;
+      m.balance = Math.max(0, totalCost - paid);
+      m.status = m.balance > 0 ? 'resting' : 'paid'; // In history, if they didn't pay they are 'resting' with balance
     });
 
     const snapshot = Array.from(membersMap.values());

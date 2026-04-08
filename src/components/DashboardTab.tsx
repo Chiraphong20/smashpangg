@@ -326,6 +326,7 @@ export function DashboardTab({
   const [checkedIds, setCheckedIds] = useState<string[]>([]);
   const [bulkCheckout, setBulkCheckout] = useState<{ member: Member, others: string[] } | null>(null);
   const [sortConfig, setSortConfig] = useState<{ key: 'default' | 'name' | 'shuttles' | 'balance', direction: 'asc' | 'desc' }>({ key: 'default', direction: 'desc' });
+  const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'paid'>('all');
 
   const isReadOnly = !!viewingSession;
   const currentMembers = viewingSession ? viewingSession.membersSnapshot : members;
@@ -353,18 +354,30 @@ export function DashboardTab({
 
   const filteredMembers = useMemo(() => {
     const query = dbSearch.toLowerCase().trim();
-    if (isReadOnly) {
-      return currentMembers.filter(m => m.name.toLowerCase().includes(query));
+    let list = [...currentMembers];
+
+    if (!isReadOnly) {
+      if (!query) {
+        // Default view: ACTIVE (waiting, playing, or balance > 0)
+        list = list.filter(m => m.status !== 'resting' || m.balance > 0);
+      } else {
+        // Search view: Everyone matching query
+        list = list.filter(m => m.name.toLowerCase().includes(query));
+      }
+    } else {
+      // History view: Filter by search only
+      list = list.filter(m => m.name.toLowerCase().includes(query));
     }
 
-    // On Dashboard, if NOT searching: only show ACTIVE (waiting, playing, or balance > 0)
-    // If SEARCHING: show active + resting results for check-in
-    if (!query) {
-      return currentMembers.filter(m => m.status !== 'resting' || m.balance > 0);
+    // Apply Status Filter
+    if (statusFilter === 'pending') {
+      list = list.filter(m => m.balance > 0);
+    } else if (statusFilter === 'paid') {
+      list = list.filter(m => m.balance === 0 && (m.gamesPlayed > 0 || m.snackHistory.length > 0));
     }
 
-    return currentMembers.filter(m => m.name.toLowerCase().includes(query));
-  }, [currentMembers, dbSearch, isReadOnly]);
+    return list;
+  }, [currentMembers, dbSearch, isReadOnly, statusFilter]);
 
   const sortedMembers = useMemo(() => {
     const list = [...filteredMembers];
@@ -406,6 +419,12 @@ export function DashboardTab({
   const activeCourts = courts.filter(c => c.players.some(Boolean)).length;
   const totalPending = currentMembers.reduce((a, m) => a + m.balance, 0);
   const totalPaid = currentPayments.reduce((a, r) => a + r.amount, 0);
+  
+  // Total Potential: Actual costs incurred today (Games + Shuttles + Snacks)
+  const totalPotential = currentMembers.reduce((a, m) => {
+    const cost = m.courtBalance + m.shuttleBalance + m.snackBalance;
+    return a + cost;
+  }, 0);
 
   return (
     <div className="space-y-4">
@@ -494,8 +513,8 @@ export function DashboardTab({
         {[
           { label: 'รอลำดับ', value: waitingPlayers, icon: Clock, color: 'text-secondary', bg: 'bg-secondary/10' },
           { label: 'กำลังเล่น', value: activePlayers, icon: Trophy, color: 'text-green-500', bg: 'bg-green-500/10' },
-          { label: 'ลูกค้าวันนี้', value: currentMembers.filter(m => m.status !== 'resting' || m.balance > 0).length, icon: Users, color: 'text-primary', bg: 'bg-primary/10' },
-          { label: 'รายรับรวม (฿)', value: (totalPending + totalPaid).toLocaleString(), icon: TrendingUp, color: 'text-error', bg: 'bg-error/10' },
+          { label: 'ลูกค้าวันนี้', value: currentMembers.filter(m => m.gamesPlayed > 0 || m.status !== 'resting').length, icon: Users, color: 'text-primary', bg: 'bg-primary/10' },
+          { label: 'รายรับรวม (฿)', value: totalPotential.toLocaleString(), icon: TrendingUp, color: 'text-error', bg: 'bg-error/10' },
         ].map(s => (
           <div key={s.label} className="bg-white rounded-3xl p-5 shadow-sm border border-on-surface/5">
             <div className={cn('w-11 h-11 rounded-2xl flex items-center justify-center mb-3', s.bg)}>
@@ -526,15 +545,37 @@ export function DashboardTab({
               <FileText size={14} /> ลงชื่อวันนี้ (ก๊อปรายชื่อไลน์)
             </button>
           </div>
-          <div className="relative group flex-1 max-w-xs">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface/30 group-focus-within:text-primary transition-colors" size={14} />
-            <input
-              type="text"
-              placeholder="ค้นหา หรือ เช็คอินเพิ่ม..."
-              value={dbSearch}
-              onChange={e => setDbSearch(e.target.value)}
-              className="w-full pl-9 pr-4 py-2 bg-background border-none rounded-xl text-xs font-bold focus:ring-2 focus:ring-primary/20 outline-none shadow-sm transition-all"
-            />
+          <div className="flex flex-col md:flex-row items-center gap-3">
+            <div className="relative group flex-1 w-48">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface/30 group-focus-within:text-primary transition-colors" size={14} />
+              <input
+                type="text"
+                placeholder="ค้นหา..."
+                value={dbSearch}
+                onChange={e => setDbSearch(e.target.value)}
+                className="w-full pl-9 pr-4 py-2 bg-background border-none rounded-xl text-[10px] font-black focus:ring-2 focus:ring-primary/20 outline-none shadow-sm transition-all"
+              />
+            </div>
+            <div className="flex items-center gap-2">
+              {[
+                { id: 'all', label: 'ทั้งหมด' },
+                { id: 'pending', label: 'ค้างชำระ' },
+                { id: 'paid', label: 'ชำระแล้ว' }
+              ].map(tab => (
+                <button
+                  key={tab.id}
+                  onClick={() => setStatusFilter(tab.id as any)}
+                  className={cn(
+                    "px-4 py-1.5 rounded-lg font-black text-[10px] uppercase tracking-widest transition-all whitespace-nowrap",
+                    statusFilter === tab.id 
+                      ? "bg-primary text-white shadow-sm" 
+                      : "bg-background text-on-surface/40 hover:bg-on-surface/5"
+                  )}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
           </div>
         </div>
 
