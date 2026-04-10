@@ -106,14 +106,10 @@ function CheckoutModal({ member, gameHistory, otherMembers, initialOthers = [], 
         </div>
 
         {/* Cost summary cards */}
-        <div className="grid grid-cols-3 gap-3 mb-6">
+        <div className="grid grid-cols-2 gap-3 mb-6">
           <div className="bg-primary/5 rounded-[1.5rem] p-4 text-center border border-primary/5">
-            <p className="text-[9px] font-black uppercase text-primary/40 tracking-widest mb-1">ค่าสนาม</p>
-            <p className="font-headline font-black text-2xl text-primary">฿{member.courtBalance.toFixed(0)}</p>
-          </div>
-          <div className="bg-secondary/5 rounded-[1.5rem] p-4 text-center border border-secondary/5">
-            <p className="text-[9px] font-black uppercase text-secondary/40 tracking-widest mb-1">ค่าลูก</p>
-            <p className="font-headline font-black text-2xl text-secondary">฿{member.shuttleBalance.toFixed(0)}</p>
+            <p className="text-[9px] font-black uppercase text-primary/40 tracking-widest mb-1">ยอดรวม (ค่ากิจกรรม / ค่าลูก)</p>
+            <p className="font-headline font-black text-2xl text-primary">฿{(member.courtBalance + member.shuttleBalance).toFixed(0)}</p>
           </div>
           <div className="bg-tertiary/5 rounded-[1.5rem] p-4 text-center border border-tertiary/5 shadow-inner">
             <p className="text-[9px] font-black uppercase text-tertiary/40 tracking-widest mb-1">สินค้า</p>
@@ -424,8 +420,8 @@ export function DashboardTab({
   const totalPending = currentMembers.reduce((a, m) => a + m.balance, 0);
   const totalPaid = currentPayments.reduce((a, r) => a + r.amount, 0);
   
-  // Total Potential: Actual costs incurred today (Games + Shuttles + Snacks)
-  const totalPotential = currentMembers.reduce((a, m) => {
+  // Total Revenue: Actual costs incurred today (Court + Shuttles + Snacks)
+  const totalRevenue = currentMembers.reduce((a, m) => {
     const cost = (m.courtBalance || 0) + (m.shuttleBalance || 0) + (m.snackBalance || 0);
     return a + cost;
   }, 0);
@@ -434,6 +430,7 @@ export function DashboardTab({
   
   // Calculate total shuttles from game history for 100% accuracy based on matches
   const totalShuttles = (viewingSession?.gameHistory || gameHistory).reduce((a, g) => a + (g.shuttlesUsed || 0), 0);
+  const totalGames = (viewingSession?.gameHistory || gameHistory).length;
 
   return (
     <div className="space-y-4">
@@ -518,12 +515,13 @@ export function DashboardTab({
       </AnimatePresence>
 
       {/* ── Quick Stats ── */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
         {[
-          { label: 'จำนวนลูกวันนี้', value: totalShuttles.toFixed(1) + ' ลูก', icon: Bolt, color: 'text-secondary', bg: 'bg-secondary/10' },
-          { label: 'จำนวนลูกค้า', value: currentMembers.filter(m => m.gamesPlayed > 0 || m.status !== 'resting' || (m.balance ?? 0) > 0).length, icon: Users, color: 'text-primary', bg: 'bg-primary/10' },
-          { label: 'ยอดรวมกิจกรรม', value: '฿' + totalPotential.toLocaleString(), icon: TrendingUp, color: 'text-error', bg: 'bg-error/10' },
-          { label: 'ยอดขายสินค้า', value: '฿' + totalSnacks.toLocaleString(), icon: ShoppingCart, color: 'text-tertiary', bg: 'bg-tertiary/10' },
+          { label: 'จำนวนเกมวันนี้', value: totalGames + ' เกม', icon: Trophy, color: 'text-primary', bg: 'bg-primary/10' },
+          { label: 'จำนวนลูกวันนี้', value: totalShuttles.toFixed(0) + ' ลูก', icon: Bolt, color: 'text-secondary', bg: 'bg-secondary/10' },
+          { label: 'จำนวนลูกค้า', value: currentMembers.filter(m => m.gamesPlayed > 0 || m.status !== 'resting' || (m.balance ?? 0) > 0).length, icon: Users, color: 'text-tertiary', bg: 'bg-tertiary/10' },
+          { label: 'ยอดรวมลูกค้า (ทั้งหมด)', value: '฿' + totalRevenue.toLocaleString(), icon: TrendingUp, color: 'text-error', bg: 'bg-error/10' },
+          { label: 'ยอดขายสินค้า', value: '฿' + totalSnacks.toLocaleString(), icon: ShoppingCart, color: 'text-orange-500', bg: 'bg-orange-500/10' },
         ].map(s => (
           <div key={s.label} className="bg-white rounded-3xl p-5 shadow-sm border border-on-surface/5">
             <div className={cn('w-11 h-11 rounded-2xl flex items-center justify-center mb-3', s.bg)}>

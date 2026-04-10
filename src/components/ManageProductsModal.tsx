@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { X, Plus, Trash2, Check, Pencil } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Snack } from '../types';
+import { Snack, DEFAULT_SNACKS } from '../types';
 
 interface Props {
   open: boolean;
@@ -58,7 +58,19 @@ export function ManageProductsModal({ open, onClose, snacks, onSave }: Props) {
             className="bg-white w-full max-w-md rounded-[2.5rem] p-8 relative z-10 shadow-2xl max-h-[90vh] flex flex-col">
             
             <div className="flex items-center justify-between mb-6 shrink-0">
-              <h2 className="font-headline font-black text-2xl tracking-tighter">จัดการสินค้า</h2>
+              <div className="flex flex-col">
+                <h2 className="font-headline font-black text-2xl tracking-tighter">จัดการสินค้า</h2>
+                <button 
+                  onClick={() => {
+                    if (confirm('ต้องการโหลดรายการสินค้าเริ่มต้นจากโค้ด (DEFAULT_SNACKS) ใช่หรือไม่? รายการที่กำหนดเองจะหายไป')) {
+                      setItems(DEFAULT_SNACKS);
+                    }
+                  }}
+                  className="text-[9px] font-black text-primary uppercase text-left hover:underline tracking-widest mt-1"
+                >
+                  โหลดค่าเริ่มต้นจากโค้ด
+                </button>
+              </div>
               <button onClick={onClose} className="p-2 hover:bg-background rounded-full transition-colors"><X size={22} /></button>
             </div>
 
