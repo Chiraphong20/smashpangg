@@ -28,6 +28,7 @@ const mkMember = (id: string, name: string, rank: Rank, gamesPlayed: number, off
   balance: 0, courtBalance: 0, shuttleBalance: 0, shuttleCount: 0, snackBalance: 0,
   snackHistory: [],
   paidCourtFee: false,
+  totalCourt: 0, totalShuttle: 0, totalSnack: 0,
 });
 
 const INITIAL_MEMBERS: Member[] = [];
@@ -463,6 +464,8 @@ export default function App() {
         shuttleCount: m.shuttleCount + court.shuttlecocks,
         paidCourtFee: true,
         checkInTime: Date.now(),
+        totalCourt: (m.totalCourt || 0) + courtCharge,
+        totalShuttle: (m.totalShuttle || 0) + shuttleCostPerPerson,
       };
     }));
 
@@ -476,7 +479,7 @@ export default function App() {
   // ── PLAYER MANAGEMENT ─────────────────────────────────────────────────────
   const removePlayerFromCourt = (courtId: string, slotIndex: number) => {
     const court = courts.find(c => c.id === courtId);
-    if (!court) return; 
+    if (!court) return;
     const pid = court.players[slotIndex];
     if (!pid) return;
     setCourts(prev => prev.map(c => c.id === courtId
@@ -516,7 +519,8 @@ export default function App() {
       ...m,
       balance: m.balance + totalExtraBalance,
       snackBalance: m.snackBalance + totalExtraBalance,
-      snackHistory: [...(m.snackHistory || []), ...historyEntries]
+      snackHistory: [...(m.snackHistory || []), ...historyEntries],
+      totalSnack: (m.totalSnack || 0) + totalExtraBalance
     } : m));
   };
 
@@ -526,7 +530,8 @@ export default function App() {
         ...m,
         balance: m.balance + snack.price,
         snackBalance: m.snackBalance + snack.price,
-        snackHistory: [...m.snackHistory, { ...snack, time: Date.now() }]
+        snackHistory: [...m.snackHistory, { ...snack, time: Date.now() }],
+        totalSnack: (m.totalSnack || 0) + snack.price
       }
       : m));
   };
@@ -542,7 +547,8 @@ export default function App() {
         ...m,
         balance: m.balance - snackToRemove.price,
         snackBalance: m.snackBalance - snackToRemove.price,
-        snackHistory: newHistory
+        snackHistory: newHistory,
+        totalSnack: Math.max(0, (m.totalSnack || 0) - snackToRemove.price)
       };
     }));
   };
@@ -559,7 +565,8 @@ export default function App() {
         ...m,
         balance: m.balance + diff,
         snackBalance: m.snackBalance + diff,
-        snackHistory: newHistory
+        snackHistory: newHistory,
+        totalSnack: (m.totalSnack || 0) + diff
       };
     }));
   };
@@ -578,7 +585,8 @@ export default function App() {
           ...m,
           balance: m.balance + delta,
           shuttleBalance: m.shuttleBalance + delta,
-          shuttleCount: m.shuttleCount + shuttleDiff
+          shuttleCount: m.shuttleCount + shuttleDiff,
+          totalShuttle: (m.totalShuttle || 0) + delta
         }
         : m
     ));
@@ -599,7 +607,8 @@ export default function App() {
         ...m,
         shuttleCount: newCount,
         shuttleBalance: m.shuttleBalance + costChange,
-        balance: m.balance + costChange
+        balance: m.balance + costChange,
+        totalShuttle: (m.totalShuttle || 0) + costChange
       };
     }));
   };
@@ -626,7 +635,9 @@ export default function App() {
         shuttleBalance: m.shuttleBalance - shuttleCost,
         shuttleCount: Math.max(0, m.shuttleCount - shuttlesPerPerson),
         courtBalance: m.courtBalance - courtRefund,
-        paidCourtFee: (m.courtBalance - courtRefund) > 0
+        paidCourtFee: (m.courtBalance - courtRefund) > 0,
+        totalShuttle: Math.max(0, (m.totalShuttle || 0) - shuttleCost),
+        totalCourt: Math.max(0, (m.totalCourt || 0) - courtRefund)
       };
     }));
 
@@ -704,6 +715,12 @@ export default function App() {
         const debtToClear = Math.min(m.balance, remainingPayment);
         m.balance -= debtToClear;
         remainingPayment -= debtToClear;
+
+        // Track who paid for whom
+        if (id !== memberId && debtToClear > 0) {
+          m.paidBy = memberId;
+          m.paidByName = member.name;
+        }
 
         if (m.balance <= 0) {
           m.balance = 0;
@@ -792,6 +809,7 @@ export default function App() {
             shuttleCount: 0,
             snackHistory: [],
             paidCourtFee: false,
+            totalCourt: 0, totalShuttle: 0, totalSnack: 0,
           });
         }
       });
@@ -856,11 +874,11 @@ export default function App() {
           isSidebarCollapsed ? "w-20 p-2" : "w-64 p-4"
         )}>
           <div className={cn("mb-8 flex items-center gap-3 transition-all", isSidebarCollapsed ? "justify-center pt-4" : "px-2 pt-6")}>
-            <div className="w-10 h-10 bg-primary rounded-xl flex items-center justify-center text-white font-black italic text-xl shadow-lg shadow-primary/20 shrink-0">S</div>
+            <div className="w-10 h-10 bg-primary rounded-full flex items-center justify-center text-white font-black italic text-xl shadow-lg shadow-primary/20 shrink-0">TJ</div>
             {!isSidebarCollapsed && (
               <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-                <h4 className="font-headline font-black text-lg text-on-surface tracking-tight">SmashIT</h4>
-                <p className="text-[10px] font-bold text-primary uppercase tracking-widest">Organizer Pro</p>
+                <h4 className="font-headline font-black text-lg text-on-surface tracking-tight">เตียเจริญ</h4>
+                <p className="text-[10px] font-bold text-primary uppercase tracking-widest">by เน็ตน่ารัก</p>
               </motion.div>
             )}
           </div>
@@ -1080,9 +1098,9 @@ function SplashScreen() {
           initial={{ scale: 0.8, opacity: 0 }}
           animate={{ scale: 1, opacity: 1 }}
           transition={{ duration: 0.8, delay: 0.2, type: "spring" }}
-          className="w-24 h-24 bg-primary rounded-[2.5rem] flex items-center justify-center text-white italic text-5xl font-black shadow-[0_0_50px_rgba(var(--primary-rgb),0.4)] mb-8"
+          className="w-24 h-24 bg-primary rounded-full flex items-center justify-center text-white italic text-5xl font-black shadow-[0_0_50px_rgba(var(--primary-rgb),0.4)] mb-8"
         >
-          S
+          TJ
         </motion.div>
 
         <motion.div
@@ -1091,8 +1109,8 @@ function SplashScreen() {
           transition={{ duration: 0.6, delay: 0.5 }}
           className="text-center"
         >
-          <h1 className="font-headline font-black text-4xl text-white tracking-tighter mb-2">SmashIT</h1>
-          <p className="text-xs font-black text-primary uppercase tracking-[0.4em] ml-1">Organizer Pro</p>
+          <h1 className="font-headline font-black text-4xl text-white tracking-tighter mb-2">เตียเจริญ</h1>
+          <p className="text-xs font-black text-primary uppercase tracking-[0.4em] ml-1">by เน็ตน่ารัก</p>
         </motion.div>
 
         {/* High-end loading bar */}

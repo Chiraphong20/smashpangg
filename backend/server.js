@@ -199,6 +199,11 @@ app.get('/api/session', async (req, res) => {
     const sessionDate = Number(sessions[0].date);
     const storedSnapshotJson = sessions[0].members_snapshot;
 
+    // GET SETTINGS for default court fee and shuttle price (used in reconstruction)
+    const [settings] = await pool.query('SELECT court_fee_per_person, shuttle_price FROM settings LIMIT 1');
+    const defaultCourtFee = Number(settings[0]?.court_fee_per_person || 40);
+    const defaultShuttlePrice = Number(settings[0]?.shuttle_price || 25);
+
     // Get games
     const [games] = await pool.query('SELECT * FROM games WHERE session_id = ? ORDER BY played_at DESC', [sessionId]);
     const [players] = await pool.query('SELECT p.* FROM game_players p JOIN games g ON p.game_id = g.id WHERE g.session_id = ?', [sessionId]);
@@ -261,11 +266,6 @@ app.get('/api/session', async (req, res) => {
         console.error('Error parsing stored members_snapshot:', e);
       }
     }
-
-    // GET SETTINGS for default court fee and shuttle price (used in fallback)
-    const [settings] = await pool.query('SELECT court_fee_per_person, shuttle_price FROM settings LIMIT 1');
-    const defaultCourtFee = Number(settings[0]?.court_fee_per_person || 40);
-    const defaultShuttlePrice = Number(settings[0]?.shuttle_price || 25);
 
     // Reconstruct simplified members snapshot from games & payments for historical view (Fallback)
     if (!snapshot || snapshot.length === 0) {
@@ -349,6 +349,11 @@ app.get('/api/session', async (req, res) => {
         const totalIncurred = gameCosts + (m.snackBalance || 0);
         m.balance = Math.max(0, totalIncurred - totalPaid);
         m.status = m.balance > 0 ? 'resting' : 'paid'; 
+
+        // Add total fields for Dashboard consistency
+        m.totalCourt = m.courtBalance;
+        m.totalShuttle = m.shuttleBalance;
+        m.totalSnack = m.snackBalance;
       });
 
       snapshot = Array.from(membersMap.values());

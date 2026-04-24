@@ -19,6 +19,13 @@ export interface Member {
   snackBalance: number;  // ค่าน้ำ/ขนมรวม
   snackHistory: Array<{ id: string; name: string; price: number; time: number }>; // ประวัติการซื้อสินค้า
   paidCourtFee: boolean;
+  // Totals for the session (never decreased by payment)
+  totalCourt?: number;
+  totalShuttle?: number;
+  totalSnack?: number;
+  // Payment info
+  paidBy?: string;
+  paidByName?: string;
 }
 
 export interface Court {

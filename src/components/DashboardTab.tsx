@@ -358,15 +358,21 @@ export function DashboardTab({
 
     if (!isReadOnly) {
       if (!query) {
-        // Default view: ACTIVE (waiting, playing, or balance > 0)
-        list = list.filter(m => m.status !== 'resting' || m.balance > 0);
+        // Default view: ACTIVE (waiting, playing, or balance > 0, or has played games)
+        list = list.filter(m => m.status !== 'resting' || m.balance > 0 || m.gamesPlayed > 0);
       } else {
-        // Search view: Everyone matching query
-        list = list.filter(m => m.name.toLowerCase().includes(query));
+        // Search view: Only active members matching query
+        list = list.filter(m => 
+          m.name.toLowerCase().includes(query) && 
+          (m.status !== 'resting' || m.balance > 0 || m.gamesPlayed > 0)
+        );
       }
     } else {
-      // History view: Filter by search only
-      list = list.filter(m => m.name.toLowerCase().includes(query));
+      // History view: Only show members who actually participated in this session
+      list = list.filter(m => 
+        m.name.toLowerCase().includes(query) && 
+        (m.gamesPlayed > 0 || m.balance > 0 || (m.snackHistory && m.snackHistory.length > 0))
+      );
     }
 
     // Apply Status Filter
@@ -420,13 +426,15 @@ export function DashboardTab({
   const totalPending = currentMembers.reduce((a, m) => a + m.balance, 0);
   const totalPaid = currentPayments.reduce((a, r) => a + r.amount, 0);
   
-  // Total Revenue: Actual costs incurred today (Court + Shuttles + Snacks)
-  const totalRevenue = currentMembers.reduce((a, m) => {
-    const cost = (m.courtBalance || 0) + (m.shuttleBalance || 0) + (m.snackBalance || 0);
-    return a + cost;
-  }, 0);
+  // Total Revenue: Sum of pending debts and already received payments
+  const totalRevenue = totalPending + totalPaid;
   
-  const totalSnacks = currentMembers.reduce((a, m) => a + (m.snackBalance || 0), 0);
+  // Total Snacks: Sum of pending snacks and snacks from payment history
+  const paidSnacks = currentPayments.reduce((total, p) => {
+    const itemTotal = (p.details?.snackHistory || []).reduce((sum, s) => sum + s.price, 0);
+    return total + itemTotal;
+  }, 0);
+  const totalSnacks = currentMembers.reduce((a, m) => a + (m.snackBalance || 0), 0) + paidSnacks;
   
   // Calculate total shuttles from game history for 100% accuracy based on matches
   const totalShuttles = (viewingSession?.gameHistory || gameHistory).reduce((a, g) => a + (g.shuttlesUsed || 0), 0);
@@ -662,7 +670,7 @@ export function DashboardTab({
                 onClick={() => setSelectedMember(m)}
                 className={cn(
                   "w-full grid grid-cols-12 gap-3 md:gap-4 px-6 py-5 md:py-6 transition-all text-left group items-center border-none cursor-pointer",
-                  isSettled ? "bg-green-500/5 hover:bg-green-500/10" : "hover:bg-primary/5 bg-white"
+                  isSettled ? "bg-green-100/30 hover:bg-green-100/50" : "hover:bg-primary/5 bg-white"
                 )}
               >
                 {/* Name + rank */}
@@ -698,9 +706,16 @@ export function DashboardTab({
                     )}
                   </div>
                   <div className="min-w-0 flex-1">
-                    <p className={cn("font-bold text-sm truncate transition-colors", isSettled ? "text-green-700" : "group-hover:text-primary")}>
-                      {m.name}
-                    </p>
+                    <div className="flex flex-col gap-0.5">
+                      <p className={cn("font-bold text-sm truncate transition-colors", isSettled ? "text-green-700" : "group-hover:text-primary")}>
+                        {m.name}
+                      </p>
+                      {m.paidByName && (
+                        <p className="text-[8px] font-black text-green-600 uppercase tracking-tight flex items-center gap-1">
+                          <Check size={8} /> จ่ายโดย {m.paidByName}
+                        </p>
+                      )}
+                    </div>
                     <div className="flex items-center gap-2">
                       <span className={cn('text-[9px] font-black px-1.5 py-0.5 rounded-full transition-all',
                         isSettled ? 'bg-green-500 text-white' :
@@ -727,8 +742,8 @@ export function DashboardTab({
 
                 {/* Court fee */}
                 <div className="col-span-2 text-right font-bold text-sm">
-                  <span className={m.courtBalance > 0 ? 'text-primary' : 'text-on-surface/20'}>
-                    {m.courtBalance > 0 ? `฿${m.courtBalance.toFixed(0)}` : '—'}
+                  <span className={(m.totalCourt || m.courtBalance) > 0 ? 'text-primary' : 'text-on-surface/20'}>
+                    {(m.totalCourt || m.courtBalance) > 0 ? `฿${(m.totalCourt || m.courtBalance).toFixed(0)}` : '—'}
                   </span>
                 </div>
 
@@ -736,10 +751,10 @@ export function DashboardTab({
                 <div className="col-span-2 text-right">
                   <div className="flex items-center justify-end gap-2 group/shuttle">
                     <div className="text-right">
-                      <p className={cn('font-bold text-sm leading-tight', m.shuttleBalance > 0 ? 'text-secondary' : 'text-on-surface/20')}>
-                        {m.shuttleBalance > 0 ? `฿${m.shuttleBalance.toFixed(0)}` : '—'}
+                      <p className={cn('font-bold text-sm leading-tight', (m.totalShuttle || m.shuttleBalance) > 0 ? 'text-secondary' : 'text-on-surface/20')}>
+                        {(m.totalShuttle || m.shuttleBalance) > 0 ? `฿${(m.totalShuttle || m.shuttleBalance).toFixed(0)}` : '—'}
                       </p>
-                      {m.shuttleCount > 0 && <p className="text-[9px] text-on-surface/30 font-black leading-tight">({m.shuttleCount} ลูก)</p>}
+                      {(m.totalShuttle || m.shuttleBalance) > 0 && <p className="text-[9px] text-on-surface/30 font-black leading-tight">({m.shuttleCount || (m.totalShuttle ? Math.round(m.totalShuttle/25) : 0)} ลูก)</p>}
                     </div>
                     {!isReadOnly && !isSettled && (
                       <div className="flex flex-col gap-0.5 opacity-0 group-hover/shuttle:opacity-100 transition-opacity">
@@ -752,17 +767,27 @@ export function DashboardTab({
                 </div>
 
                 {/* Snacks */}
-                <div className="col-span-2 text-right font-bold text-sm">
-                  <div className="flex items-center justify-end gap-2 group/snack">
-                    <span className={m.snackBalance > 0 ? 'text-tertiary' : 'text-on-surface/20'}>
-                      {m.snackBalance > 0 ? `฿${m.snackBalance.toFixed(0)}` : '—'}
+                <div 
+                  className={cn(
+                    "col-span-2 text-right font-bold text-sm h-full flex items-center justify-end transition-colors",
+                    (!isReadOnly && !isSettled) ? "hover:bg-tertiary/5 cursor-pointer" : ""
+                  )}
+                  onClick={(e) => {
+                    if (!isReadOnly && !isSettled) {
+                      e.stopPropagation();
+                      setPosTarget(m);
+                    }
+                  }}
+                >
+                  <div className="flex items-center justify-end gap-2 px-2 group/snack">
+                    <span className={(m.totalSnack || m.snackBalance) > 0 ? 'text-tertiary' : 'text-on-surface/20'}>
+                      {(m.totalSnack || m.snackBalance) > 0 ? `฿${(m.totalSnack || m.snackBalance).toFixed(0)}` : '—'}
                     </span>
                     {!isReadOnly && !isSettled && (
                       <button
-                        onClick={(e) => { e.stopPropagation(); setPosTarget(m); }}
-                        className="p-1.5 rounded-xl text-tertiary bg-tertiary/10 transition-all shadow-sm shadow-tertiary/10 active:scale-95"
+                        className="p-2.5 rounded-2xl text-tertiary bg-tertiary/10 transition-all shadow-sm shadow-tertiary/10 active:scale-90"
                       >
-                        <ShoppingCart size={14} strokeWidth={3} />
+                        <ShoppingCart size={20} strokeWidth={3} />
                       </button>
                     )}
                   </div>
@@ -784,7 +809,7 @@ export function DashboardTab({
                       <span className={cn(
                         isSettled ? "text-green-500" : (m.balance > 0 ? "text-error" : "text-on-surface/20")
                       )}>
-                        ฿{(m.courtBalance + m.shuttleBalance + m.snackBalance).toFixed(0)}
+                        ฿{((m.totalCourt || m.courtBalance) + (m.totalShuttle || m.shuttleBalance) + (m.totalSnack || m.snackBalance)).toFixed(0)}
                       </span>
                     </div>
                     {isSettled && (
@@ -826,10 +851,10 @@ export function DashboardTab({
           )}
           <div className="grid grid-cols-12 gap-2 px-6 py-5 border-t-2 border-on-surface/5 bg-on-surface/2 font-black text-sm">
             <div className="col-span-4 text-on-surface/40 uppercase tracking-widest text-xs">สรุปยอดรวมวันนี้</div>
-            <div className="col-span-2 text-right text-primary">฿{filteredMembers.reduce((a, m) => a + m.courtBalance, 0).toFixed(0)}</div>
-            <div className="col-span-2 text-right text-secondary">฿{filteredMembers.reduce((a, m) => a + m.shuttleBalance, 0).toFixed(0)}</div>
-            <div className="col-span-2 text-right text-tertiary">฿{filteredMembers.reduce((a, m) => a + m.snackBalance, 0).toFixed(0)}</div>
-            <div className="col-span-2 text-right text-error text-2xl font-headline">฿{filteredMembers.reduce((a, m) => a + m.balance, 0).toFixed(0)}</div>
+            <div className="col-span-2 text-right text-primary">฿{filteredMembers.reduce((a, m) => a + (m.totalCourt || m.courtBalance), 0).toFixed(0)}</div>
+            <div className="col-span-2 text-right text-secondary">฿{filteredMembers.reduce((a, m) => a + (m.totalShuttle || m.shuttleBalance), 0).toFixed(0)}</div>
+            <div className="col-span-2 text-right text-tertiary">฿{filteredMembers.reduce((a, m) => a + (m.totalSnack || m.snackBalance), 0).toFixed(0)}</div>
+            <div className="col-span-2 text-right text-error text-2xl font-headline">฿{filteredMembers.reduce((a, m) => a + ((m.totalCourt || m.courtBalance) + (m.totalShuttle || m.shuttleBalance) + (m.totalSnack || m.snackBalance)), 0).toFixed(0)}</div>
           </div>
         </div>
       </div>

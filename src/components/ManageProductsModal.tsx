@@ -13,7 +13,14 @@ interface Props {
 const EMOJI_OPTIONS = ['💧','⚡','🏸','🍪','🥤','🍜','🍱','🍌','🍊','🧃','☕','🍩','🍫','🌮','🥗'];
 
 export function ManageProductsModal({ open, onClose, snacks, onSave }: Props) {
-  const [items, setItems] = useState<Snack[]>(snacks);
+  const [items, setItems] = React.useState<Snack[]>(snacks);
+
+  // Sync internal state when modal opens
+  React.useEffect(() => {
+    if (open) {
+      setItems(snacks);
+    }
+  }, [open, snacks]);
   const [editing, setEditing] = useState<string | null>(null);
   const [showAdd, setShowAdd] = useState(false);
   const [newName, setNewName] = useState('');
