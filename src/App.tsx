@@ -319,7 +319,23 @@ export default function App() {
         return;
       }
       setMembers(prev => prev.map(m => m.name.toLowerCase() === name.toLowerCase()
-        ? { ...m, status: 'waiting', checkInTime: Date.now(), rank }
+        ? { 
+            ...m, 
+            status: 'waiting', 
+            checkInTime: Date.now(), 
+            rank,
+            balance: 0,
+            courtBalance: 0,
+            shuttleBalance: 0,
+            snackBalance: 0,
+            shuttleCount: 0,
+            gamesPlayed: 0,
+            snackHistory: [],
+            paidCourtFee: false,
+            totalCourt: 0,
+            totalShuttle: 0,
+            totalSnack: 0
+          }
         : m
       ));
     } else {
@@ -879,7 +895,20 @@ export default function App() {
             ...current[existingIndex],
             rank: item.rank,
             status: isSessionImport ? 'waiting' : current[existingIndex].status,
-            checkInTime: isSessionImport ? (now + i) : current[existingIndex].checkInTime
+            checkInTime: isSessionImport ? (now + i) : current[existingIndex].checkInTime,
+            ...(isSessionImport ? {
+              balance: 0,
+              courtBalance: 0,
+              shuttleBalance: 0,
+              snackBalance: 0,
+              shuttleCount: 0,
+              gamesPlayed: 0,
+              snackHistory: [],
+              paidCourtFee: false,
+              totalCourt: 0,
+              totalShuttle: 0,
+              totalSnack: 0
+            } : {})
           };
         } else {
           // New member
