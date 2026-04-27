@@ -142,5 +142,4 @@ export const DEFAULT_SNACKS: Snack[] = [
   { id: 'oishi', name: 'โออิชิ', price: 20, icon: '🍃', image: '/โออิชิ.jpg' },
   { id: 'vitamilk', name: 'ไวตามิ้ลค์', price: 15, icon: '🥛', image: '/ไวตามิล.jpg' },
   { id: 'singha', name: 'เบียร์สิงห์', price: 60, icon: '🍺', image: '/เบียร์สิงห์.jpg' },
-  { id: 'shuttle', name: 'ลูกแบด', price: 100, icon: '🏸' },
 ];

@@ -16,7 +16,6 @@ interface Props {
   paymentHistory: PaymentRecord[];
   gameHistory: GameRecord[];
   onAddSnack: (memberId: string, snacks: Snack[]) => void;
-  onUpdateShuttles: (memberId: string, delta: number) => void;
   onUpdateRank: (memberId: string, rank: Rank) => void;
   onRemoveSnack: (memberId: string, snackIndex: number) => void;
   viewingSession: SessionRecord | null;
@@ -32,6 +31,8 @@ interface Props {
   onCheckIn: (memberId: string) => void;
   onRemove: (memberId: string) => void;
   onResetDay: () => void;
+  onClearBoard: () => void;
+  onUpdateGame: (id: string, players: string[], shuttles: number) => void;
   isSyncing: boolean;
   onImportLine: () => void;
 }
@@ -312,10 +313,11 @@ function CheckoutModal({ member, gameHistory, otherMembers, initialOthers = [], 
 
 export function DashboardTab({
   members, courts, snacks, paymentHistory, gameHistory,
-  onAddSnack, onUpdateShuttles, onUpdateRank, onRemoveSnack, onUpdateSnackPrice, viewingSession, onCloseSession,
+  onAddSnack, onUpdateRank, onRemoveSnack, onUpdateSnackPrice, viewingSession, onCloseSession,
   sessionHistory, onViewSession,
   onProcessPayment, onReOpen, onPullSession,
   onAddCourt, isSidebarCollapsed, onCheckIn, onRemove, onResetDay,
+  onClearBoard, onUpdateGame,
   isSyncing, onImportLine
 }: Props) {
   const [selectedMember, setSelectedMember] = useState<Member | null>(null);
@@ -505,12 +507,20 @@ export function DashboardTab({
               <Monitor size={14} /> ดูวันนี้
             </button>
           ) : (
-            <button
-              onClick={onResetDay}
-              className="px-6 py-2.5 bg-error text-white rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-lg shadow-error/20 hover:scale-105 active:scale-95 transition-all flex items-center gap-2"
-            >
-              <RefreshCw size={14} /> จบวันและสรุปยอด
-            </button>
+            <div className="flex gap-1.5">
+              <button
+                onClick={onClearBoard}
+                className="px-6 py-2.5 bg-background text-on-surface/40 rounded-2xl font-black text-[10px] uppercase tracking-widest border border-on-surface/10 hover:bg-on-surface/5 active:scale-95 transition-all flex items-center gap-2"
+              >
+                <Trash2 size={14} /> ล้างกระดาน
+              </button>
+              <button
+                onClick={onResetDay}
+                className="px-6 py-2.5 bg-error text-white rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-lg shadow-error/20 hover:scale-105 active:scale-95 transition-all flex items-center gap-2"
+              >
+                <RefreshCw size={14} /> จบวันและสรุปยอด
+              </button>
+            </div>
           )}
         </div>
       </div>
@@ -723,12 +733,12 @@ export function DashboardTab({
                             m.status === 'waiting' ? 'bg-secondary/10 text-secondary' : 'bg-on-surface/5 text-on-surface/30')}>
                         {isSettled ? '✓ จ่ายแล้ว' : m.status === 'playing' ? '🏸 เล่น' : m.status === 'waiting' ? '⌛ รอ' : '😴 พักค้าง'}
                       </span>
-                      {m.status === 'resting' && !isReadOnly && (
+                      {(m.status === 'resting' || isSettled) && !isReadOnly && (
                         <button
                           onClick={(e) => { e.stopPropagation(); onCheckIn(m.id); }}
                           className="text-[9px] font-black bg-primary text-white px-2 py-0.5 rounded-full hover:scale-105 active:scale-95 transition-transform flex items-center gap-1"
                         >
-                          <UserPlus size={8} strokeWidth={4} /> เช็คอิน
+                          <UserPlus size={8} strokeWidth={4} /> {isSettled ? 'กลับมาตีใหม่' : 'เช็คอิน'}
                         </button>
                       )}
                     </div>
@@ -756,13 +766,6 @@ export function DashboardTab({
                       </p>
                       {(m.totalShuttle || m.shuttleBalance) > 0 && <p className="text-[9px] text-on-surface/30 font-black leading-tight">({m.shuttleCount || (m.totalShuttle ? Math.round(m.totalShuttle/25) : 0)} ลูก)</p>}
                     </div>
-                    {!isReadOnly && !isSettled && (
-                      <div className="flex flex-col gap-0.5 opacity-0 group-hover/shuttle:opacity-100 transition-opacity">
-                        <button onClick={(e) => { e.stopPropagation(); onUpdateShuttles(m.id, 1); }} className="p-1 px-1.5 bg-secondary/10 hover:bg-secondary/20 text-secondary rounded-lg">
-                          <Plus size={10} strokeWidth={4} />
-                        </button>
-                      </div>
-                    )}
                   </div>
                 </div>
 

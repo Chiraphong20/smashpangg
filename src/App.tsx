@@ -217,9 +217,94 @@ export default function App() {
       snackHistory: [],
       paidCourtFee: false,
       status: 'resting',
-      checkInTime: Date.now()
+      checkInTime: Date.now(),
+      totalCourt: 0,
+      totalShuttle: 0,
+      totalSnack: 0
     })));
 
+  };
+
+  const clearBoard = () => {
+    if (!confirm('ยืนยัน "ล้างกระดาน" หรือไม่? \n(ลบรายการทั้งหมดของวันนี้ทิ้งโดยไม่บันทึกประวัติ)')) return;
+    setGameHistory([]);
+    setPaymentHistory([]);
+    setCourts(INITIAL_COURTS);
+    setMembers(prev => prev.map(m => ({
+      ...m,
+      gamesPlayed: 0,
+      balance: 0,
+      courtBalance: 0,
+      shuttleBalance: 0,
+      shuttleCount: 0,
+      snackBalance: 0,
+      snackHistory: [],
+      paidCourtFee: false,
+      status: 'resting',
+      checkInTime: Date.now(),
+      totalCourt: 0,
+      totalShuttle: 0,
+      totalSnack: 0
+    })));
+  };
+
+  const updateGame = (gameId: string, newPlayerIds: string[], newShuttles: number) => {
+    const game = gameHistory.find(g => g.id === gameId);
+    if (!game) return;
+
+    const oldPlayerIds = game.players.map(p => p.id);
+    const oldShuttles = game.shuttlesUsed;
+    const oldShuttleCost = game.shuttleCostPerPerson;
+    const oldCourtFee = game.courtFeePerPerson || 0;
+
+    const newShuttleCost = newShuttles * shuttlePrice;
+    
+    setMembers(prev => prev.map(m => {
+      let updated = { ...m };
+      
+      // 1. Refund old players
+      if (oldPlayerIds.includes(m.id)) {
+        updated.balance -= (oldShuttleCost + oldCourtFee);
+        updated.shuttleBalance -= oldShuttleCost;
+        updated.courtBalance -= oldCourtFee;
+        updated.shuttleCount = Math.max(0, updated.shuttleCount - oldShuttles);
+        updated.gamesPlayed = Math.max(0, updated.gamesPlayed - 1);
+        updated.totalCourt = Math.max(0, (updated.totalCourt || 0) - oldCourtFee);
+        updated.totalShuttle = Math.max(0, (updated.totalShuttle || 0) - oldShuttleCost);
+        // Important: if they no longer have any games, reset paidCourtFee
+        if (updated.gamesPlayed === 0) updated.paidCourtFee = false;
+      }
+
+      // 2. Charge new players
+      if (newPlayerIds.includes(m.id)) {
+        const chargeField = updated.paidCourtFee ? 0 : courtFeePerPerson;
+        updated.balance += (newShuttleCost + chargeField);
+        updated.shuttleBalance += newShuttleCost;
+        updated.courtBalance += chargeField;
+        updated.shuttleCount += newShuttles;
+        updated.gamesPlayed += 1;
+        updated.paidCourtFee = true;
+        updated.totalCourt = (updated.totalCourt || 0) + chargeField;
+        updated.totalShuttle = (updated.totalShuttle || 0) + newShuttleCost;
+      }
+
+      return updated;
+    }));
+
+    setGameHistory(prev => prev.map(g => {
+      if (g.id !== gameId) return g;
+      const newPlayers = newPlayerIds.map(pid => {
+        const p = members.find(px => px.id === pid)!;
+        return { id: pid, name: p.name, rank: p.rank };
+      });
+      return { 
+        ...g, 
+        players: newPlayers, 
+        shuttlesUsed: newShuttles, 
+        shuttleCostPerPerson: newShuttleCost,
+        courtFeePerPerson: oldCourtFee // Keep old charge status or update? safest to keep logic consistent
+      };
+    }));
   };
 
   const addMember = (name: string, rank: Rank) => {
@@ -979,10 +1064,9 @@ export default function App() {
             <AnimatePresence mode="wait">
               <motion.div key={activeTab} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.2 }}>
                 {activeTab === 'dashboard' && (
-                  <DashboardTab
-                    members={members} courts={courts} snacks={snacks}
+                  <DashboardTab 
+                    members={members} courts={courts} snacks={snacks} 
                     paymentHistory={paymentHistory} gameHistory={gameHistory}
-                    onUpdateShuttles={updateMemberShuttles}
                     onUpdateRank={updateMemberRank}
                     onRemoveSnack={removeSnackFromMember}
                     onUpdateSnackPrice={updateSnackPrice}
@@ -999,16 +1083,20 @@ export default function App() {
                     onCheckIn={checkInMember}
                     onRemove={removeFromSession}
                     onResetDay={resetDay}
+                    onClearBoard={clearBoard}
+                    onUpdateGame={updateGame}
                     onAddSnack={addSnacksToMember}
                     onImportLine={() => { setImportIsSession(true); setShowImport(true); }}
                   />
                 )}
                 {activeTab === 'logs' && (
-                  <LogsTab
-                    gameHistory={gameHistory}
-                    sessionHistory={sessionHistory}
-                    onViewSession={setViewingSession}
+                  <LogsTab 
+                    gameHistory={gameHistory} 
+                    sessionHistory={sessionHistory} 
+                    members={members}
+                    onViewSession={setViewingSession} 
                     onActiveTab={setActiveTab}
+                    onUpdateGame={updateGame}
                   />
                 )}
                 {activeTab === 'members' && (
