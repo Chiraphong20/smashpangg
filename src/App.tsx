@@ -57,6 +57,8 @@ export default function App() {
   const [viewingSession, setViewingSession] = useState<SessionRecord | null>(null);
   const [rankMemory, setRankMemory] = useState<Record<string, Rank>>({});
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  // เก็บวันที่เริ่มต้นก๊วน (fix ปัญหาเลยเที่ยงคืน)
+  const [sessionStartDate, setSessionStartDate] = useState<number | null>(null);
 
   // Modal states
   const [showAddMember, setShowAddMember] = useState(false);
@@ -95,6 +97,7 @@ export default function App() {
         if (loadedState?.sessionHistory) setSessionHistory(loadedState.sessionHistory);
         if (loadedState?.courtFeePerPerson) setCourtFeePerPerson(loadedState.courtFeePerPerson);
         if (loadedState?.shuttlePrice) setShuttlePrice(loadedState.shuttlePrice);
+        if (loadedState?.sessionStartDate) setSessionStartDate(loadedState.sessionStartDate);
         if (loadedState?.snacks && loadedState.snacks.length > 4) {
           setSnacks(loadedState.snacks);
         } else {
@@ -151,7 +154,8 @@ export default function App() {
             rankMemory,
             courtFeePerPerson,
             shuttlePrice,
-            snacks
+            snacks,
+            sessionStartDate
           })
         });
       } catch (err) {
@@ -159,7 +163,7 @@ export default function App() {
       }
     }, 2000);
     return () => clearTimeout(handler);
-  }, [members, courts, gameHistory, paymentHistory, sessionHistory, courtFeePerPerson, shuttlePrice, rankMemory, snacks]);
+  }, [members, courts, gameHistory, paymentHistory, sessionHistory, courtFeePerPerson, shuttlePrice, rankMemory, snacks, sessionStartDate]);
 
   // Debounced save MASTER DATA (Permanent members & Settings) to MySQL
   useEffect(() => {
@@ -183,6 +187,7 @@ export default function App() {
   const resetDay = async () => {
     if (!confirm('คุณแน่ใจหรือไม่ว่าต้องการเริ่มวันใหม่? (ล้างประวัติการตีและรีเซ็ตคอร์ด)')) return;
     saveSession();
+    setSessionStartDate(null);
 
     // Sync session to the DB
     setIsSyncing(true);
@@ -230,6 +235,7 @@ export default function App() {
     setGameHistory([]);
     setPaymentHistory([]);
     setCourts(INITIAL_COURTS);
+    setSessionStartDate(null);
     setMembers(prev => prev.map(m => ({
       ...m,
       gamesPlayed: 0,
@@ -312,6 +318,8 @@ export default function App() {
 
     // Auto-update rank memory when a member is added manually
     setRankMemory(prev => ({ ...prev, [name]: rank }));
+    // บันทึกวันเริ่มต้นก๊วนถ้ายังไม่มี
+    setSessionStartDate(prev => prev ?? Date.now());
 
     if (existing) {
       if (existing.status === 'waiting') {
@@ -428,9 +436,10 @@ export default function App() {
 
   const saveSession = () => {
     if (gameHistory.length === 0 && paymentHistory.length === 0) return;
+    // ใช้ sessionStartDate แทน Date.now() เพื่อแก้ปัญหาเลยเที่ยงคืน
     const session: SessionRecord = {
       id: Math.random().toString(36).substr(2, 9),
-      date: Date.now(),
+      date: sessionStartDate || Date.now(),
       gameHistory: [...gameHistory],
       paymentHistory: [...paymentHistory],
       membersSnapshot: [...members]
@@ -875,6 +884,8 @@ export default function App() {
 
 
   const importMembers = (list: { name: string; rank: Rank }[], isSessionImport = false) => {
+    // บันทึกวันเริ่มต้นก๊วนถ้ายังไม่มีและเป็น session import
+    if (isSessionImport) setSessionStartDate(prev => prev ?? Date.now());
     const status: Member['status'] = isSessionImport ? 'waiting' : 'resting';
 
     setRankMemory(prev => {
@@ -1116,6 +1127,7 @@ export default function App() {
                     onUpdateGame={updateGame}
                     onAddSnack={addSnacksToMember}
                     onImportLine={() => { setImportIsSession(true); setShowImport(true); }}
+                    sessionStartDate={sessionStartDate}
                   />
                 )}
                 {activeTab === 'logs' && (
@@ -1123,6 +1135,7 @@ export default function App() {
                     gameHistory={gameHistory} 
                     sessionHistory={sessionHistory} 
                     members={members}
+                    paymentHistory={paymentHistory}
                     onViewSession={setViewingSession} 
                     onActiveTab={setActiveTab}
                     onUpdateGame={updateGame}

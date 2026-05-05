@@ -7,6 +7,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { Member, Court, PaymentRecord, GameRecord, Snack, Rank, RANKS, RANK_COLORS, RANK_LEVEL_LABELS, SessionRecord, RANK_WEIGHTS } from '../types';
 import { format } from 'date-fns';
+import { th } from 'date-fns/locale';
 import { POSModal } from './POSModal';
 
 interface Props {
@@ -35,15 +36,17 @@ interface Props {
   onUpdateGame: (id: string, players: string[], shuttles: number) => void;
   isSyncing: boolean;
   onImportLine: () => void;
+  sessionStartDate?: number | null;
 }
 
 
 
 // Modal showing a player's checkout details (snacks, games, and payment)
-function CheckoutModal({ member, gameHistory, otherMembers, initialOthers = [], onUpdateRank, onRemoveSnack, onUpdateSnackPrice, onPay, onReOpen, isReadOnly, onClose }: {
+function CheckoutModal({ member, gameHistory, otherMembers, paymentHistory = [], initialOthers = [], onUpdateRank, onRemoveSnack, onUpdateSnackPrice, onPay, onReOpen, isReadOnly, onClose }: {
   member: Member;
   gameHistory: GameRecord[];
   otherMembers: Member[];
+  paymentHistory?: PaymentRecord[];
   initialOthers?: string[];
   onUpdateRank: (memberId: string, rank: Rank) => void;
   onRemoveSnack: (memberId: string, snackIndex: number) => void;
@@ -64,6 +67,16 @@ function CheckoutModal({ member, gameHistory, otherMembers, initialOthers = [], 
 
   const [editingSnackIndex, setEditingSnackIndex] = useState<number | null>(null);
   const [tempPrice, setTempPrice] = useState<string>('');
+
+  // ดึง snack history จาก PaymentRecord สำหรับคนที่จ่ายแล้ว (snackHistory จะถูกล้างหลังจ่าย)
+  const isPaid = member.status === 'paid';
+  const paidSnackHistory = isPaid
+    ? paymentHistory
+        .filter(p => p.memberId === member.id)
+        .flatMap(p => p.details?.snackHistory || [])
+    : [];
+  // ถ้าคนยังไม่จ่าย ใช้ snackHistory ปกติ ถ้าจ่ายแล้วใช้จาก payment records
+  const displaySnackHistory = isPaid ? paidSnackHistory : (member.snackHistory || []);
 
   return (
     <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
@@ -110,23 +123,24 @@ function CheckoutModal({ member, gameHistory, otherMembers, initialOthers = [], 
         <div className="grid grid-cols-2 gap-3 mb-6">
           <div className="bg-primary/5 rounded-[1.5rem] p-4 text-center border border-primary/5">
             <p className="text-[9px] font-black uppercase text-primary/40 tracking-widest mb-1">ยอดรวม (ค่ากิจกรรม / ค่าลูก)</p>
-            <p className="font-headline font-black text-2xl text-primary">฿{(member.courtBalance + member.shuttleBalance).toFixed(0)}</p>
+            <p className="font-headline font-black text-2xl text-primary">฿{((member.totalCourt ?? member.courtBalance) + (member.totalShuttle ?? member.shuttleBalance)).toFixed(0)}</p>
           </div>
           <div className="bg-tertiary/5 rounded-[1.5rem] p-4 text-center border border-tertiary/5 shadow-inner">
             <p className="text-[9px] font-black uppercase text-tertiary/40 tracking-widest mb-1">สินค้า</p>
-            <p className="font-headline font-black text-2xl text-tertiary">฿{member.snackBalance.toFixed(0)}</p>
+            <p className="font-headline font-black text-2xl text-tertiary">฿{(member.totalSnack || member.snackBalance || paidSnackHistory.reduce((a,s)=>a+s.price,0)).toFixed(0)}</p>
           </div>
         </div>
 
         <div className="flex-1 overflow-y-auto space-y-6 min-h-0 pr-1 custom-scrollbar">
-          {/* Detailed Snack List */}
-          {member.snackHistory?.length > 0 && (
+          {/* Detailed Snack List — แสดงจาก payment record ถ้าจ่ายแล้ว */}
+          {displaySnackHistory.length > 0 && (
             <div className="space-y-3">
               <h3 className="font-black text-[10px] text-on-surface/30 uppercase tracking-widest flex items-center gap-2">
                 <ShoppingCart size={12} /> รายละเอียดน้ำ/ขนม
+                {isPaid && <span className="text-green-500 normal-case font-bold text-[9px] bg-green-500/10 px-2 py-0.5 rounded-full">บันทึกจากการชำระเงิน</span>}
               </h3>
               <div className="bg-background rounded-3xl p-4 space-y-2.5">
-                {member.snackHistory.map((s, idx) => (
+                {displaySnackHistory.map((s, idx) => (
                   <div key={idx} className="flex items-center justify-between gap-3 group/snk">
                     <div className="flex items-center gap-3 flex-1 min-w-0">
                       <div className="w-2 h-2 rounded-full bg-tertiary/20" />
@@ -156,7 +170,7 @@ function CheckoutModal({ member, gameHistory, otherMembers, initialOthers = [], 
                       ) : (
                         <button
                           onClick={() => {
-                            if (!isReadOnly) {
+                            if (!isReadOnly && !isPaid) {
                               setEditingSnackIndex(idx);
                               setTempPrice(s.price.toString());
                             }
@@ -166,7 +180,7 @@ function CheckoutModal({ member, gameHistory, otherMembers, initialOthers = [], 
                           ฿{s.price}
                         </button>
                       )}
-                      {!isReadOnly && (
+                      {!isReadOnly && !isPaid && (
                         <button
                           onClick={() => onRemoveSnack(member.id, idx)}
                           className="p-1.5 rounded-lg bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white transition-all shadow-sm"
@@ -318,7 +332,8 @@ export function DashboardTab({
   onProcessPayment, onReOpen, onPullSession,
   onAddCourt, isSidebarCollapsed, onCheckIn, onRemove, onResetDay,
   onClearBoard, onUpdateGame,
-  isSyncing, onImportLine
+  isSyncing, onImportLine,
+  sessionStartDate
 }: Props) {
   const [selectedMember, setSelectedMember] = useState<Member | null>(null);
   const [posTarget, setPosTarget] = useState<Member | null>(null);
@@ -458,7 +473,11 @@ export function DashboardTab({
             </div>
             <p className="text-[9px] font-bold text-on-surface/40 uppercase tracking-widest flex items-center gap-2">
               <span className={cn("w-2 h-2 rounded-full animate-pulse", isReadOnly ? "bg-primary" : "bg-green-500")} />
-              {isReadOnly ? `ข้อมูลสรุปของ ${format(viewingSession!.date, 'do MMM yyyy')}` : "กระดานสรุปผลสด (เรียลไทม์)"}
+              {isReadOnly
+                ? `ข้อมูลสรุปของ ${format(viewingSession!.date, 'd MMMM yyyy', { locale: th })}`
+                : sessionStartDate
+                  ? `ก๊วนวันนี้ เริ่มตั้งแต่ ${format(sessionStartDate, 'd MMMM yyyy เวลา HH:mm น.', { locale: th })}`
+                  : 'กระดานสรุปผลสด (เรียลไทม์)'}
             </p>
           </div>
         </div>
@@ -764,7 +783,7 @@ export function DashboardTab({
                       <p className={cn('font-bold text-sm leading-tight', (m.totalShuttle || m.shuttleBalance) > 0 ? 'text-secondary' : 'text-on-surface/20')}>
                         {(m.totalShuttle || m.shuttleBalance) > 0 ? `฿${(m.totalShuttle || m.shuttleBalance).toFixed(0)}` : '—'}
                       </p>
-                      {(m.totalShuttle || m.shuttleBalance) > 0 && <p className="text-[9px] text-on-surface/30 font-black leading-tight">({m.shuttleCount || (m.totalShuttle ? Math.round(m.totalShuttle/25) : 0)} ลูก)</p>}
+
                     </div>
                   </div>
                 </div>
@@ -870,6 +889,7 @@ export function DashboardTab({
             initialOthers={bulkCheckout ? bulkCheckout.others : []}
             gameHistory={currentGames}
             otherMembers={currentMembers}
+            paymentHistory={currentPayments}
             onUpdateRank={onUpdateRank}
             onRemoveSnack={onRemoveSnack}
             onUpdateSnackPrice={onUpdateSnackPrice}

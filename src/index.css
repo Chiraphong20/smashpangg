@@ -30,10 +30,17 @@
 @layer base {
   body {
     @apply font-sans bg-background text-on-surface;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
   
   h1, h2, h3, h4, h5, h6 {
     @apply font-headline;
+  }
+
+  /* ตัวเลขตาราง ใช้ tabular-nums เพื่อให้เรียงแนวตรง */
+  .tabular-nums {
+    font-variant-numeric: tabular-nums;
   }
 }
 
@@ -41,3 +48,28 @@
   background-image: radial-gradient(#afacac 0.5px, transparent 0.5px);
   background-size: 24px 24px;
 }
+
+/* Custom Scrollbar */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 4px;
+  height: 4px;
+}
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(47, 46, 46, 0.12);
+  border-radius: 999px;
+}
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: rgba(47, 46, 46, 0.25);
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+.scrollbar-hide {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+

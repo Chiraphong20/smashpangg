@@ -1,7 +1,8 @@
 import React from 'react';
-import { GameRecord, Member, RANK_COLORS, SessionRecord } from '../types';
-import { History, LayoutDashboard, Trophy, Clock, X, Check } from 'lucide-react';
+import { GameRecord, Member, PaymentRecord, RANK_COLORS, SessionRecord } from '../types';
+import { History, LayoutDashboard, Trophy, Clock, X, Check, Banknote, ShoppingCart, ChevronDown, ChevronUp, Calendar } from 'lucide-react';
 import { format } from 'date-fns';
+import { th } from 'date-fns/locale';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 
@@ -9,6 +10,7 @@ interface Props {
   gameHistory: GameRecord[];
   sessionHistory: SessionRecord[];
   members: Member[];
+  paymentHistory: PaymentRecord[];
   onViewSession: (session: SessionRecord) => void;
   onActiveTab: (tab: 'dashboard' | 'logs' | 'members' | 'courts' | 'finance') => void;
   onUpdateGame: (id: string, players: string[], shuttles: number) => void;
@@ -92,9 +94,40 @@ function EditGameModal({ game, members, onSave, onClose }: { game: GameRecord, m
   );
 }
 
-export function LogsTab({ gameHistory, sessionHistory, members, onViewSession, onActiveTab, onUpdateGame }: Props) {
+export function LogsTab({ gameHistory, sessionHistory, members, paymentHistory, onViewSession, onActiveTab, onUpdateGame }: Props) {
   const [editingGame, setEditingGame] = React.useState<GameRecord | null>(null);
+  const [expandedPayment, setExpandedPayment] = React.useState<string | null>(null);
+  const [showSessionDropdown, setShowSessionDropdown] = React.useState(false);
+  const dropdownRef = React.useRef<HTMLDivElement>(null);
+  
   const logs = [...gameHistory].sort((a, b) => b.playedAt - a.playedAt);
+  const payments = [...paymentHistory].sort((a, b) => b.timestamp - a.timestamp);
+
+  // Close dropdown on outside click
+  React.useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
+        setShowSessionDropdown(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  // Deduplicate sessions by date (keep the one with the most activity)
+  const uniqueSessions = React.useMemo(() => {
+    const map = new Map<string, SessionRecord>();
+    sessionHistory.forEach(s => {
+      const dateStr = format(s.date, 'yyyy-MM-dd');
+      const existing = map.get(dateStr);
+      const score = (s.gameHistory?.length || 0) + (s.paymentHistory?.length || 0);
+      const existScore = existing ? (existing.gameHistory?.length || 0) + (existing.paymentHistory?.length || 0) : -1;
+      if (!existing || score > existScore) {
+        map.set(dateStr, s);
+      }
+    });
+    return Array.from(map.values()).sort((a, b) => b.date - a.date);
+  }, [sessionHistory]);
 
   return (
     <div className="space-y-6 max-w-4xl mx-auto">
@@ -125,45 +158,155 @@ export function LogsTab({ gameHistory, sessionHistory, members, onViewSession, o
         </div>
       </div>
 
-      {/* Session History Section */}
-      {sessionHistory.length > 0 && (
-        <div className="space-y-4">
+      {/* Session History Section (Dropdown Calendar style) */}
+      {uniqueSessions.length > 0 && (
+        <div className="space-y-3 relative z-40" ref={dropdownRef}>
           <div className="flex items-center gap-2 px-1">
-            <h3 className="text-xs font-black uppercase text-on-surface/40 tracking-widest">เซสชันที่ผ่านมา</h3>
+            <h3 className="text-xs font-black uppercase text-on-surface/40 tracking-widest">ประวัติการตี (เซสชันที่ผ่านมา)</h3>
             <div className="h-px bg-on-surface/5 flex-1" />
           </div>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            {sessionHistory.map(session => (
-              <button 
-                key={session.id}
-                onClick={() => {
-                  onViewSession(session);
-                  onActiveTab('dashboard');
-                }}
-                className="bg-white hover:bg-primary/5 rounded-[2rem] p-5 shadow-sm border border-on-surface/5 flex items-center justify-between group transition-all text-left"
-              >
-                <div className="flex items-center gap-4">
-                  <div className="w-10 h-10 bg-primary/5 rounded-2xl flex items-center justify-center text-primary group-hover:scale-110 transition-transform">
-                    <Clock size={20} />
-                  </div>
-                  <div>
-                    <p className="font-black text-sm text-on-surface">เซสชัน {format(session.date, 'do MMM yyyy')}</p>
-                    <p className="text-[10px] font-bold text-on-surface/40">
-                      {session.gameHistory.length} เกม · {session.membersSnapshot.length} ผู้เล่น
-                    </p>
-                  </div>
+          <div className="relative">
+            <button
+              onClick={() => setShowSessionDropdown(!showSessionDropdown)}
+              className="w-full bg-white hover:bg-on-surface/5 rounded-2xl p-4 shadow-sm border border-on-surface/5 flex items-center justify-between transition-all active:scale-[0.99]"
+            >
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 bg-primary/10 rounded-xl flex items-center justify-center text-primary">
+                  <Calendar size={20} />
                 </div>
-                <div className="flex items-center gap-2 text-primary font-black text-[10px] uppercase tracking-widest opacity-0 group-hover:opacity-100 transition-opacity">
-                  ดูรายละเอียด <LayoutDashboard size={14} />
+                <div className="text-left">
+                  <p className="font-black text-sm text-on-surface">เลือกดูประวัติย้อนหลัง</p>
+                  <p className="text-[10px] font-bold text-on-surface/40 uppercase tracking-widest">
+                    มีข้อมูลทั้งหมด {uniqueSessions.length} วัน
+                  </p>
                 </div>
-              </button>
-            ))}
+              </div>
+              <ChevronDown size={20} className={cn("text-on-surface/40 transition-transform", showSessionDropdown && "rotate-180")} />
+            </button>
+
+            <AnimatePresence>
+              {showSessionDropdown && (
+                <motion.div
+                  initial={{ opacity: 0, y: -10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -10 }}
+                  transition={{ duration: 0.15 }}
+                  className="absolute top-full left-0 right-0 mt-2 bg-white rounded-2xl shadow-xl border border-on-surface/10 z-50 overflow-hidden max-h-80 overflow-y-auto custom-scrollbar"
+                >
+                  <div className="p-2 space-y-1">
+                    {uniqueSessions.map(session => (
+                      <button
+                        key={session.id}
+                        onClick={() => {
+                          onViewSession(session);
+                          onActiveTab('dashboard');
+                          setShowSessionDropdown(false);
+                        }}
+                        className="w-full text-left flex items-center justify-between p-3 rounded-xl hover:bg-primary/5 transition-colors group"
+                      >
+                        <div className="flex items-center gap-4">
+                          {/* Red dot indicating active session date */}
+                          <div className="relative flex items-center justify-center w-10 h-10 rounded-xl bg-on-surface/5 group-hover:bg-primary/10 transition-colors">
+                            <span className="text-sm font-black text-on-surface/60 group-hover:text-primary">{format(session.date, 'd')}</span>
+                            <div className="absolute top-2 right-2 w-1.5 h-1.5 rounded-full bg-error ring-2 ring-white" />
+                          </div>
+                          <div>
+                            <p className="font-black text-sm group-hover:text-primary transition-colors">{format(session.date, 'd MMMM yyyy', { locale: th })}</p>
+                            <p className="text-[10px] font-bold text-on-surface/40 uppercase tracking-widest">
+                              {session.gameHistory.length} เกม · {session.membersSnapshot.length} ผู้เล่น
+                            </p>
+                          </div>
+                        </div>
+                        <div className="opacity-0 group-hover:opacity-100 transition-opacity p-2 bg-white rounded-full shadow-sm">
+                          <LayoutDashboard size={14} className="text-primary" />
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
         </div>
       )}
 
       <div className="flex items-center gap-2 px-1">
         <h3 className="text-xs font-black uppercase text-secondary/60 tracking-widest">รายการของวันนี้</h3>
+        <div className="h-px bg-on-surface/5 flex-1" />
+      </div>
+
+      {/* Payment History Section */}
+      {payments.length > 0 && (
+        <div className="space-y-3">
+          <div className="flex items-center gap-2 px-1">
+            <Banknote size={14} className="text-green-600" />
+            <h3 className="text-xs font-black uppercase text-green-700/60 tracking-widest">บันทึกการชำระเงิน ({payments.length} รายการ)</h3>
+            <div className="h-px bg-on-surface/5 flex-1" />
+          </div>
+          <div className="space-y-2">
+            {payments.map(p => {
+              const snackItems = p.details?.snackHistory || [];
+              const isExpanded = expandedPayment === p.id;
+              return (
+                <div key={p.id} className="bg-white rounded-2xl shadow-sm border border-on-surface/5 overflow-hidden">
+                  <button
+                    onClick={() => setExpandedPayment(isExpanded ? null : p.id)}
+                    className="w-full flex items-center gap-4 px-5 py-4 hover:bg-green-50/50 transition-colors text-left"
+                  >
+                    <div className="w-9 h-9 bg-green-500/10 rounded-xl flex items-center justify-center shrink-0">
+                      <Banknote size={16} className="text-green-600" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-black text-sm text-on-surface">{p.memberName}</p>
+                      <p className="text-[10px] font-bold text-on-surface/40">{format(p.timestamp, 'HH:mm น.')} • {p.note}</p>
+                    </div>
+                    <div className="flex items-center gap-3">
+                      <p className="font-headline font-black text-xl text-green-600">฿{p.amount.toLocaleString()}</p>
+                      {snackItems.length > 0 && (
+                        isExpanded ? <ChevronUp size={16} className="text-on-surface/30" /> : <ChevronDown size={16} className="text-on-surface/30" />
+                      )}
+                    </div>
+                  </button>
+                  {/* Snack details breakdown */}
+                  {isExpanded && snackItems.length > 0 && (
+                    <div className="px-5 pb-4 space-y-1.5 border-t border-on-surface/5 pt-3 bg-on-surface/[0.015]">
+                      <p className="text-[9px] font-black uppercase text-on-surface/30 tracking-widest mb-2 flex items-center gap-1"><ShoppingCart size={10} /> รายการสินค้า</p>
+                      {snackItems.map((s, i) => (
+                        <div key={i} className="flex items-center justify-between text-xs">
+                          <span className="text-on-surface/60 font-bold flex items-center gap-2">
+                            <span className="w-1.5 h-1.5 rounded-full bg-tertiary/40 shrink-0" />
+                            {s.name}
+                          </span>
+                          <span className="font-black text-tertiary">฿{s.price}</span>
+                        </div>
+                      ))}
+                      <div className="flex items-center justify-between text-xs pt-2 border-t border-on-surface/5 mt-2">
+                        <span className="font-black text-on-surface/40 uppercase tracking-widest text-[9px]">รวมสินค้า</span>
+                        <span className="font-black text-tertiary">฿{snackItems.reduce((a,s)=>a+s.price,0)}</span>
+                      </div>
+                      {(p.details?.courtBalance ?? 0) > 0 && (
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="font-black text-on-surface/40 uppercase tracking-widest text-[9px]">ค่าสนาม</span>
+                          <span className="font-black text-primary">฿{p.details!.courtBalance}</span>
+                        </div>
+                      )}
+                      {(p.details?.shuttleBalance ?? 0) > 0 && (
+                        <div className="flex items-center justify-between text-xs">
+                          <span className="font-black text-on-surface/40 uppercase tracking-widest text-[9px]">ค่าลูกแบด</span>
+                          <span className="font-black text-secondary">฿{p.details!.shuttleBalance}</span>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      <div className="flex items-center gap-2 px-1 mt-2">
+        <h3 className="text-xs font-black uppercase text-secondary/60 tracking-widest">บันทึกการตีวันนี้</h3>
         <div className="h-px bg-on-surface/5 flex-1" />
       </div>
 
@@ -185,7 +328,7 @@ export function LogsTab({ gameHistory, sessionHistory, members, onViewSession, o
                   </div>
                   <div>
                     <p className="text-2xl font-black font-headline tabular-nums">{format(game.playedAt, 'HH:mm')}</p>
-                    <p className="text-[10px] font-black text-on-surface/30 uppercase tracking-widest">{format(game.playedAt, 'do MMMM')}</p>
+                    <p className="text-[10px] font-black text-on-surface/30 uppercase tracking-widest">{format(game.playedAt, 'd MMMM', { locale: th })}</p>
                   </div>
                 </div>
 
