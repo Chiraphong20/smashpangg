@@ -341,7 +341,7 @@ export function DashboardTab({
   const [dbSearch, setDbSearch] = useState('');
   const [checkedIds, setCheckedIds] = useState<string[]>([]);
   const [bulkCheckout, setBulkCheckout] = useState<{ member: Member, others: string[] } | null>(null);
-  const [sortConfig, setSortConfig] = useState<{ key: 'default' | 'name' | 'shuttles' | 'balance', direction: 'asc' | 'desc' }>({ key: 'default', direction: 'desc' });
+  const [sortConfig, setSortConfig] = useState<{ key: 'default' | 'name' | 'shuttles' | 'balance' | 'games', direction: 'asc' | 'desc' }>({ key: 'default', direction: 'desc' });
   const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'paid'>('all');
 
   const isReadOnly = !!viewingSession;
@@ -410,6 +410,8 @@ export function DashboardTab({
         if (res !== 0) return res;
         return (RANK_WEIGHTS[b.rank] || 0) - (RANK_WEIGHTS[a.rank] || 0); // fallback to rank
       });
+    } else if (sortConfig.key === 'games') {
+      list.sort((a, b) => sortConfig.direction === 'asc' ? a.gamesPlayed - b.gamesPlayed : b.gamesPlayed - a.gamesPlayed);
     } else if (sortConfig.key === 'shuttles') {
       list.sort((a, b) => sortConfig.direction === 'asc' ? a.shuttleCount - b.shuttleCount : b.shuttleCount - a.shuttleCount);
     } else if (sortConfig.key === 'balance') {
@@ -427,7 +429,7 @@ export function DashboardTab({
     return list;
   }, [filteredMembers, sortConfig]);
 
-  const handleSort = (key: 'name' | 'shuttles' | 'balance') => {
+  const handleSort = (key: 'name' | 'shuttles' | 'balance' | 'games') => {
     setSortConfig(prev => {
       if (prev.key === key) {
         if (prev.direction === 'desc') return { key, direction: 'asc' };
@@ -646,7 +648,19 @@ export function DashboardTab({
               )}
             </span>
           </div>
-          <div className="col-span-1 text-center">เกม</div>
+          <div
+            className="col-span-1 text-center cursor-pointer hover:text-primary transition-colors flex items-center justify-center gap-1 group/h"
+            onClick={() => handleSort('games')}
+          >
+            {sortConfig.key === 'games' ? (
+              sortConfig.direction === 'asc'
+                ? <ChevronUp size={12} className="text-primary shrink-0" />
+                : <ChevronDown size={12} className="text-primary shrink-0" />
+            ) : (
+              <ChevronDown size={10} className="opacity-0 group-hover/h:opacity-50 shrink-0" />
+            )}
+            <span className={sortConfig.key === 'games' ? 'text-primary' : ''}>เกม</span>
+          </div>
           <div className="col-span-2 text-right">ค่าสนาม</div>
           <div className="col-span-2 text-right cursor-pointer hover:text-primary transition-colors flex justify-end items-center gap-1 group/h" onClick={() => handleSort('shuttles')}>
             {sortConfig.key === 'shuttles' ? (

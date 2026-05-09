@@ -6,6 +6,7 @@ import { Member, Court, Rank, RANKS, RANK_COLORS, Snack, PaymentRecord, GameReco
 import { format } from 'date-fns';
 import confetti from 'canvas-confetti';
 
+import { LoginScreen } from './components/LoginScreen';
 import { DashboardTab } from './components/DashboardTab';
 import { CourtsTab } from './components/CourtsTab';
 import { MembersTab } from './components/MembersTab';
@@ -58,6 +59,10 @@ export default function App() {
   const [viewingSession, setViewingSession] = useState<SessionRecord | null>(null);
   const [rankMemory, setRankMemory] = useState<Record<string, Rank>>({});
   const [isSidebarCollapsed, setIsSidebarCollapsed] = useState(false);
+  const [adminPin, setAdminPin] = useState(() => localStorage.getItem('tj_pin') || '1234');
+
+  useEffect(() => { localStorage.setItem('tj_pin', adminPin); }, [adminPin]);
+  const [isAuthenticated, setIsAuthenticated] = useState(() => sessionStorage.getItem('tj_auth') === '1');
   // เก็บวันที่เริ่มต้นก๊วน (fix ปัญหาเลยเที่ยงคืน)
   const [sessionStartDate, setSessionStartDate] = useState<number | null>(null);
 
@@ -1062,6 +1067,15 @@ export default function App() {
 
   if (isQueueView) return <QueueView />;
 
+  if (!isAuthenticated) return (
+    <AnimatePresence>
+      <LoginScreen
+        pin={adminPin}
+        onLogin={() => { sessionStorage.setItem('tj_auth', '1'); setIsAuthenticated(true); }}
+      />
+    </AnimatePresence>
+  );
+
   return (
     <>
       <AnimatePresence>
@@ -1338,6 +1352,8 @@ export default function App() {
                     onResetDay={resetDay}
                     onFactoryReset={factoryReset}
                     rankMemory={rankMemory}
+                    adminPin={adminPin}
+                    setAdminPin={setAdminPin}
                   />
                 )}
               </motion.div>

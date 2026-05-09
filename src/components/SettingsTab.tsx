@@ -9,6 +9,7 @@ import {
   Copy,
   Check,
   Download,
+  Lock,
 } from 'lucide-react';
 import { Rank } from '../types';
 
@@ -21,15 +22,27 @@ interface Props {
   onResetDay: () => void;
   onFactoryReset: () => void;
   rankMemory: Record<string, Rank>;
+  adminPin: string;
+  setAdminPin: (pin: string) => void;
 }
 
 export function SettingsTab({
   courtFeePerPerson, setCourtFeePerPerson,
   shuttlePrice, setShuttlePrice,
   onSeedMockHistory, onResetDay, onFactoryReset,
-  rankMemory
+  rankMemory, adminPin, setAdminPin
 }: Props) {
   const [copied, setCopied] = useState(false);
+  const [pinInput, setPinInput] = useState(adminPin);
+  const [pinSaved, setPinSaved] = useState(false);
+
+  const savePin = () => {
+    if (pinInput.length < 4) { alert('PIN ต้องมีอย่างน้อย 4 หลัก'); return; }
+    if (!/^\d+$/.test(pinInput)) { alert('PIN ต้องเป็นตัวเลขเท่านั้น'); return; }
+    setAdminPin(pinInput);
+    setPinSaved(true);
+    setTimeout(() => setPinSaved(false), 2000);
+  };
   const queueUrl = `${window.location.origin}${window.location.pathname}?queue`;
   const qrSrc = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&margin=10&data=${encodeURIComponent(queueUrl)}`;
 
@@ -65,6 +78,34 @@ export function SettingsTab({
 
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+        {/* PIN Section */}
+        <section className="bg-white rounded-[2.5rem] p-8 shadow-sm border border-on-surface/5 space-y-6">
+          <h3 className="text-sm font-black uppercase tracking-widest text-on-surface/40 flex items-center gap-2">
+            <Lock size={18} className="text-primary" />
+            PIN เข้าสู่ระบบ
+          </h3>
+          <div className="space-y-3">
+            <label className="text-xs font-bold text-on-surface/40 ml-2">PIN ({pinInput.length} หลัก)</label>
+            <div className="flex gap-3">
+              <input
+                type="password"
+                inputMode="numeric"
+                value={pinInput}
+                onChange={e => setPinInput(e.target.value.replace(/\D/g, '').slice(0, 8))}
+                className="flex-1 px-6 py-4 bg-background rounded-2xl font-headline font-black text-3xl tracking-[0.5em] focus:outline-none focus:ring-4 focus:ring-primary/10 transition-all border-none"
+                placeholder="••••"
+              />
+              <button
+                onClick={savePin}
+                className="px-5 py-4 bg-primary text-white rounded-2xl font-bold text-sm shadow-lg shadow-primary/20 hover:scale-105 active:scale-95 transition-all shrink-0"
+              >
+                {pinSaved ? <Check size={20} /> : 'บันทึก'}
+              </button>
+            </div>
+            <p className="text-xs text-on-surface/30 ml-2">ตัวเลข 4–8 หลัก · ใช้เมื่อเปิดแอปครั้งถัดไป</p>
+          </div>
+        </section>
+
         {/* Pricing Section */}
         <section className="bg-white rounded-[2.5rem] p-8 shadow-sm border border-on-surface/5 space-y-6">
           <h3 className="text-sm font-black uppercase tracking-widest text-on-surface/40 flex items-center gap-2">
