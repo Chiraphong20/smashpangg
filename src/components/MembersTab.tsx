@@ -70,11 +70,11 @@ export function MembersTab({
         </div>
         <div className="flex items-center gap-2">
           <button onClick={onImportLine}
-            className="flex-1 md:flex-none flex items-center justify-center gap-2 bg-secondary/10 text-secondary px-6 py-3 rounded-2xl font-black text-xs uppercase tracking-widest hover:bg-secondary/20 transition-all">
+            className="flex-1 md:flex-none flex items-center justify-center gap-2 bg-secondary/10 text-secondary px-5 py-3 rounded-2xl font-bold text-sm hover:bg-secondary/20 transition-all">
             <FileText size={16} /> นำเข้าไลน์
           </button>
           <button onClick={onAddMember}
-            className="flex-1 md:flex-none flex items-center justify-center gap-2 bg-primary text-white px-6 py-3 rounded-2xl font-black text-xs uppercase tracking-widest shadow-lg shadow-primary/20 hover:scale-105 active:scale-95 transition-all">
+            className="flex-1 md:flex-none flex items-center justify-center gap-2 bg-primary text-white px-5 py-3 rounded-2xl font-bold text-sm shadow-lg shadow-primary/20 hover:scale-105 active:scale-95 transition-all">
             <UserPlus size={16} /> เพิ่มสมาชิกใหม่
           </button>
         </div>
@@ -85,7 +85,7 @@ export function MembersTab({
         <div className="flex gap-2 flex-wrap">
           {filters.map(f => (
             <button key={f.id} onClick={() => setFilter(f.id)}
-              className={cn('px-4 py-2 rounded-full font-bold text-xs uppercase transition-all',
+              className={cn('px-4 py-2 rounded-full font-semibold text-sm transition-all',
                 filter === f.id ? 'bg-primary text-white shadow-lg shadow-primary/20' : 'bg-white text-on-surface/60 hover:bg-white/80')}>
               {f.label}
             </button>
@@ -97,14 +97,14 @@ export function MembersTab({
         {/* Select All / Deselect All */}
         {filtered.length > 0 && (
           <div className="col-span-full flex items-center gap-4 px-2">
-             <button 
+             <button
                onClick={() => setSelectedIds(prev => prev.length === filtered.length ? [] : filtered.map(m => m.id))}
-               className="text-[10px] font-black text-primary uppercase tracking-widest hover:underline"
+               className="text-xs font-bold text-primary hover:underline"
              >
                {selectedIds.length === filtered.length ? 'ยกเลิกการเลือกทั้งหมด' : 'เลือกทั้งหมดในหน้านี้'}
              </button>
              {selectedIds.length > 0 && (
-               <span className="text-[10px] font-black text-on-surface/40 uppercase">เลือกอยู่ {selectedIds.length} คน</span>
+               <span className="text-xs font-semibold text-on-surface/50">เลือกอยู่ {selectedIds.length} คน</span>
              )}
           </div>
         )}
@@ -155,9 +155,9 @@ export function MembersTab({
                   </div>
                   {RANK_LEVEL_LABELS[member.rank] && <p className="text-xs font-bold text-primary">{RANK_LEVEL_LABELS[member.rank]}</p>}
                   <div className="flex items-center gap-3 mt-2">
-                    <span className="text-[10px] font-black text-on-surface/40 uppercase">{member.gamesPlayed} เกม</span>
-                    <span className="text-[10px] text-on-surface/20">•</span>
-                    <span className="text-[10px] font-black text-on-surface/40 uppercase">
+                    <span className="text-xs font-semibold text-on-surface/45">{member.gamesPlayed} เกม</span>
+                    <span className="text-xs text-on-surface/20">•</span>
+                    <span className="text-xs font-semibold text-on-surface/40">
                       รอ: {Math.floor((Date.now() - member.checkInTime) / 60000)} นาที
                     </span>
                   </div>
@@ -166,7 +166,7 @@ export function MembersTab({
 
               <div className="flex items-center justify-between mt-4 pt-4 border-t border-on-surface/5">
                 <div className="flex items-center gap-2">
-                  <div className={cn('text-[10px] font-black px-3 py-1 rounded-full uppercase',
+                  <div className={cn('text-xs font-semibold px-3 py-1 rounded-full',
                     member.status === 'playing' ? 'bg-tertiary/10 text-tertiary' :
                     member.status === 'waiting' ? 'bg-secondary/10 text-secondary' :
                     'bg-on-surface/5 text-on-surface/40')}>
@@ -175,9 +175,9 @@ export function MembersTab({
                   {member.status === 'resting' && (
                     <button
                       onClick={() => onCheckIn(member.id)}
-                      className="text-[10px] font-black bg-primary text-white px-3 py-1 rounded-full hover:scale-105 active:scale-95 transition-all flex items-center gap-1 shadow-sm shadow-primary/20"
+                      className="text-xs font-bold bg-primary text-white px-3 py-1 rounded-full hover:scale-105 active:scale-95 transition-all flex items-center gap-1.5 shadow-sm shadow-primary/20"
                     >
-                      <UserPlus size={10} strokeWidth={3} /> เช็คอิน
+                      <UserPlus size={12} strokeWidth={2.5} /> เช็คอิน
                     </button>
                   )}
                 </div>
@@ -188,9 +188,9 @@ export function MembersTab({
                   {confirmDelete === member.id ? (
                     <div className="flex gap-1">
                       <button onClick={() => { onRemove(member.id); setConfirmDelete(null); }}
-                        className="text-[10px] bg-error text-white px-2 py-1 rounded-lg font-black">ลบ</button>
+                        className="text-xs bg-error text-white px-2.5 py-1 rounded-lg font-bold">ลบ</button>
                       <button onClick={() => setConfirmDelete(null)}
-                        className="text-[10px] bg-on-surface/10 px-2 py-1 rounded-lg font-black">ยกเลิก</button>
+                        className="text-xs bg-on-surface/10 px-2.5 py-1 rounded-lg font-bold">ยกเลิก</button>
                     </div>
                   ) : (
                     <button onClick={() => setConfirmDelete(member.id)}
@@ -220,20 +220,20 @@ export function MembersTab({
                 {selectedIds.slice(0, 3).map(id => {
                   const m = members.find(x => x.id === id);
                   return (
-                    <div key={id} className={cn("w-8 h-8 rounded-full border-2 border-on-surface flex items-center justify-center text-[8px] font-black", RANK_COLORS[m?.rank || 'P'])}>
+                    <div key={id} className={cn("w-8 h-8 rounded-full border-2 border-on-surface flex items-center justify-center text-xs font-bold", RANK_COLORS[m?.rank || 'P'])}>
                       {m?.name.charAt(0)}
                     </div>
                   );
                 })}
                 {selectedIds.length > 3 && (
-                  <div className="w-8 h-8 rounded-full border-2 border-on-surface bg-on-surface-variant flex items-center justify-center text-[8px] font-black">
+                  <div className="w-8 h-8 rounded-full border-2 border-on-surface bg-on-surface-variant flex items-center justify-center text-xs font-bold">
                     +{selectedIds.length - 3}
                   </div>
                 )}
               </div>
               <div>
                 <p className="text-xs font-black">เลือก {selectedIds.length} รายชื่อ</p>
-                <p className="text-[9px] text-white/40 font-bold uppercase tracking-widest">จัดการแบบกลุ่ม</p>
+                <p className="text-xs text-white/40 font-semibold">จัดการแบบกลุ่ม</p>
               </div>
             </div>
 
@@ -241,7 +241,7 @@ export function MembersTab({
               <div className="relative">
                 <button 
                   onClick={(e) => { e.stopPropagation(); setShowBulkRank(!showBulkRank); }}
-                  className="px-4 py-2 bg-white/10 hover:bg-white/20 rounded-xl text-[10px] font-black uppercase tracking-widest flex items-center gap-2"
+                  className="px-4 py-2 bg-white/10 hover:bg-white/20 rounded-xl text-sm font-bold flex items-center gap-2"
                 >
                   เปลี่ยนระดับมือ <ChevronRight size={12} className={cn("transition-transform", showBulkRank ? "-rotate-90" : "rotate-90")} />
                 </button>
@@ -249,7 +249,7 @@ export function MembersTab({
                   <div className="absolute bottom-full left-0 mb-2 p-2 bg-on-surface border border-white/10 rounded-2xl shadow-xl flex gap-1 animate-in fade-in slide-in-from-bottom-2">
                     {RANKS.map(r => (
                       <button key={r} onClick={() => { onBulkUpdateRank(selectedIds, r); setSelectedIds([]); setShowBulkRank(false); }}
-                        className={cn("w-8 h-8 rounded-lg flex items-center justify-center text-[9px] font-black hover:scale-110 transition-transform", RANK_COLORS[r])}>
+                        className={cn("w-8 h-8 rounded-lg flex items-center justify-center text-xs font-bold hover:scale-110 transition-transform", RANK_COLORS[r])}>
                         {r}
                       </button>
                     ))}
@@ -258,7 +258,7 @@ export function MembersTab({
               </div>
               <button 
                 onClick={() => { onBulkCheckIn(selectedIds); setSelectedIds([]); }}
-                className="px-4 py-2 bg-primary text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:scale-105 active:scale-95 transition-all flex items-center gap-2"
+                className="px-4 py-2 bg-primary text-white rounded-xl text-sm font-bold hover:scale-105 active:scale-95 transition-all flex items-center gap-2"
               >
                 <UserPlus size={14} /> เช็คอิน
               </button>

@@ -38,17 +38,17 @@ export function FinanceTab({ members, paymentHistory, onMarkAsPaid }: Props) {
       {/* Summary cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <div className="bg-error/5 border border-error/10 rounded-3xl p-6">
-          <p className="text-[10px] font-black text-error uppercase tracking-widest mb-2">ค้างชำระ</p>
+          <p className="text-xs font-bold text-error mb-2">ค้างชำระ</p>
           <p className="text-4xl font-headline font-black text-error">฿{totalPending.toLocaleString()}</p>
           <p className="text-xs font-bold text-on-surface/40 mt-1">{pendingMembers.length} คน</p>
         </div>
         <div className="bg-tertiary/5 border border-tertiary/10 rounded-3xl p-6">
-          <p className="text-[10px] font-black text-tertiary uppercase tracking-widest mb-2">รับแล้ว</p>
+          <p className="text-xs font-bold text-tertiary mb-2">รับแล้ว</p>
           <p className="text-4xl font-headline font-black text-tertiary">฿{totalPaid.toLocaleString()}</p>
           <p className="text-xs font-bold text-on-surface/40 mt-1">{paymentHistory.length} รายการ</p>
         </div>
         <div className="bg-primary/5 border border-primary/10 rounded-3xl p-6">
-          <p className="text-[10px] font-black text-primary uppercase tracking-widest mb-2">รวมทั้งหมด</p>
+          <p className="text-xs font-bold text-primary mb-2">รวมทั้งหมด</p>
           <p className="text-4xl font-headline font-black text-primary">฿{(totalPending + totalPaid).toLocaleString()}</p>
           <p className="text-xs font-bold text-on-surface/40 mt-1">รายรับวันนี้</p>
         </div>
@@ -58,7 +58,7 @@ export function FinanceTab({ members, paymentHistory, onMarkAsPaid }: Props) {
       <div className="flex gap-2">
         {[{ id: 'pending', label: `ค้างชำระ (${pendingMembers.length})` }, { id: 'history', label: `ประวัติ (${paymentHistory.length})` }].map(t => (
           <button key={t.id} onClick={() => setTab(t.id as any)}
-            className={cn('px-5 py-2.5 rounded-full font-black text-xs uppercase transition-all',
+            className={cn('px-5 py-2.5 rounded-full font-bold text-sm transition-all',
               tab === t.id ? 'bg-primary text-white shadow-lg shadow-primary/20' : 'bg-white text-on-surface/60 hover:bg-white')}>
             {t.label}
           </button>
@@ -121,11 +121,11 @@ export function FinanceTab({ members, paymentHistory, onMarkAsPaid }: Props) {
                   </div>
                   <div className="flex-1">
                     <p className="font-bold text-sm">{record.memberName}</p>
-                    <p className="text-[10px] text-on-surface/40">{record.note} • {format(new Date(record.timestamp), 'HH:mm')}</p>
+                    <p className="text-xs text-on-surface/45">{record.note} • {format(new Date(record.timestamp), 'HH:mm')}</p>
                   </div>
                   <div className="flex items-center gap-2">
                     <p className="font-headline font-black text-tertiary">฿{record.amount.toFixed(0)}</p>
-                    <span className="text-[10px] bg-tertiary/10 text-tertiary px-2 py-0.5 rounded-full font-black uppercase">ชำระแล้ว</span>
+                    <span className="text-xs bg-tertiary/10 text-tertiary px-2 py-1 rounded-full font-bold">ชำระแล้ว</span>
                   </div>
                 </div>
               ))

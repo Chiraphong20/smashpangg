@@ -12,7 +12,7 @@ interface Props {
   members: Member[];
   paymentHistory: PaymentRecord[];
   onViewSession: (session: SessionRecord) => void;
-  onActiveTab: (tab: 'dashboard' | 'logs' | 'members' | 'courts' | 'finance') => void;
+  onActiveTab: (tab: 'dashboard' | 'logs' | 'members' | 'courts' | 'settings') => void;
   onUpdateGame: (id: string, players: string[], shuttles: number) => void;
 }
 
@@ -34,7 +34,7 @@ function EditGameModal({ game, members, onSave, onClose }: { game: GameRecord, m
 
         <div className="space-y-6 overflow-y-auto pr-2 custom-scrollbar">
           <div>
-            <label className="text-[10px] font-black uppercase text-on-surface/30 tracking-widest mb-2 block">จำนวนลูกแบด</label>
+            <label className="text-xs font-bold text-on-surface/45 mb-2 block">จำนวนลูกแบด</label>
             <div className="flex items-center gap-4">
               <button onClick={() => setShuttles(Math.max(1, shuttles - 1))} className="w-10 h-10 rounded-xl bg-on-surface/5 flex items-center justify-center font-black">-</button>
               <span className="text-xl font-black w-12 text-center">{shuttles}</span>
@@ -43,7 +43,7 @@ function EditGameModal({ game, members, onSave, onClose }: { game: GameRecord, m
           </div>
 
           <div>
-            <label className="text-[10px] font-black uppercase text-on-surface/30 tracking-widest mb-2 block">ผู้เล่น (4 คน)</label>
+            <label className="text-xs font-bold text-on-surface/45 mb-2 block">ผู้เล่น (4 คน)</label>
             <div className="flex flex-wrap gap-2 mb-4">
               {pids.map((id, idx) => {
                 const m = members.find(mx => mx.id === id);
@@ -71,7 +71,7 @@ function EditGameModal({ game, members, onSave, onClose }: { game: GameRecord, m
                     }}
                     className={cn("flex items-center gap-3 p-3 rounded-2xl transition-all text-left", pids.includes(m.id) ? "bg-primary text-white" : "bg-on-surface/5 hover:bg-on-surface/10")}
                   >
-                    <div className={cn("w-6 h-6 rounded-lg flex items-center justify-center text-[8px] font-black", pids.includes(m.id) ? "bg-white/20" : RANK_COLORS[m.rank])}>{m.rank}</div>
+                    <div className={cn("w-6 h-6 rounded-lg flex items-center justify-center text-[10px] font-bold", pids.includes(m.id) ? "bg-white/20" : RANK_COLORS[m.rank])}>{m.rank}</div>
                     <span className="text-xs font-bold truncate">{m.name}</span>
                   </button>
                 ))}
@@ -162,7 +162,7 @@ export function LogsTab({ gameHistory, sessionHistory, members, paymentHistory, 
       {uniqueSessions.length > 0 && (
         <div className="space-y-3 relative z-40" ref={dropdownRef}>
           <div className="flex items-center gap-2 px-1">
-            <h3 className="text-xs font-black uppercase text-on-surface/40 tracking-widest">ประวัติการตี (เซสชันที่ผ่านมา)</h3>
+            <h3 className="text-sm font-bold text-on-surface/50">ประวัติการตี (เซสชันที่ผ่านมา)</h3>
             <div className="h-px bg-on-surface/5 flex-1" />
           </div>
           <div className="relative">
@@ -176,7 +176,7 @@ export function LogsTab({ gameHistory, sessionHistory, members, paymentHistory, 
                 </div>
                 <div className="text-left">
                   <p className="font-black text-sm text-on-surface">เลือกดูประวัติย้อนหลัง</p>
-                  <p className="text-[10px] font-bold text-on-surface/40 uppercase tracking-widest">
+                  <p className="text-xs font-semibold text-on-surface/45">
                     มีข้อมูลทั้งหมด {uniqueSessions.length} วัน
                   </p>
                 </div>
@@ -212,7 +212,7 @@ export function LogsTab({ gameHistory, sessionHistory, members, paymentHistory, 
                           </div>
                           <div>
                             <p className="font-black text-sm group-hover:text-primary transition-colors">{format(session.date, 'd MMMM yyyy', { locale: th })}</p>
-                            <p className="text-[10px] font-bold text-on-surface/40 uppercase tracking-widest">
+                            <p className="text-xs font-semibold text-on-surface/45">
                               {session.gameHistory.length} เกม · {session.membersSnapshot.length} ผู้เล่น
                             </p>
                           </div>
@@ -258,7 +258,7 @@ export function LogsTab({ gameHistory, sessionHistory, members, paymentHistory, 
                     </div>
                     <div className="flex-1 min-w-0">
                       <p className="font-black text-sm text-on-surface">{p.memberName}</p>
-                      <p className="text-[10px] font-bold text-on-surface/40">{format(p.timestamp, 'HH:mm น.')} • {p.note}</p>
+                      <p className="text-xs font-semibold text-on-surface/45">{format(p.timestamp, 'HH:mm น.')} • {p.note}</p>
                     </div>
                     <div className="flex items-center gap-3">
                       <p className="font-headline font-black text-xl text-green-600">฿{p.amount.toLocaleString()}</p>
@@ -270,7 +270,7 @@ export function LogsTab({ gameHistory, sessionHistory, members, paymentHistory, 
                   {/* Snack details breakdown */}
                   {isExpanded && snackItems.length > 0 && (
                     <div className="px-5 pb-4 space-y-1.5 border-t border-on-surface/5 pt-3 bg-on-surface/[0.015]">
-                      <p className="text-[9px] font-black uppercase text-on-surface/30 tracking-widest mb-2 flex items-center gap-1"><ShoppingCart size={10} /> รายการสินค้า</p>
+                      <p className="text-xs font-bold text-on-surface/40 mb-2 flex items-center gap-1"><ShoppingCart size={12} /> รายการสินค้า</p>
                       {snackItems.map((s, i) => (
                         <div key={i} className="flex items-center justify-between text-xs">
                           <span className="text-on-surface/60 font-bold flex items-center gap-2">
@@ -281,18 +281,18 @@ export function LogsTab({ gameHistory, sessionHistory, members, paymentHistory, 
                         </div>
                       ))}
                       <div className="flex items-center justify-between text-xs pt-2 border-t border-on-surface/5 mt-2">
-                        <span className="font-black text-on-surface/40 uppercase tracking-widest text-[9px]">รวมสินค้า</span>
+                        <span className="font-bold text-on-surface/45 text-xs">รวมสินค้า</span>
                         <span className="font-black text-tertiary">฿{snackItems.reduce((a,s)=>a+s.price,0)}</span>
                       </div>
                       {(p.details?.courtBalance ?? 0) > 0 && (
                         <div className="flex items-center justify-between text-xs">
-                          <span className="font-black text-on-surface/40 uppercase tracking-widest text-[9px]">ค่าสนาม</span>
+                          <span className="font-bold text-on-surface/45 text-xs">ค่าสนาม</span>
                           <span className="font-black text-primary">฿{p.details!.courtBalance}</span>
                         </div>
                       )}
                       {(p.details?.shuttleBalance ?? 0) > 0 && (
                         <div className="flex items-center justify-between text-xs">
-                          <span className="font-black text-on-surface/40 uppercase tracking-widest text-[9px]">ค่าลูกแบด</span>
+                          <span className="font-bold text-on-surface/45 text-xs">ค่าลูกแบด</span>
                           <span className="font-black text-secondary">฿{p.details!.shuttleBalance}</span>
                         </div>
                       )}
@@ -328,7 +328,7 @@ export function LogsTab({ gameHistory, sessionHistory, members, paymentHistory, 
                   </div>
                   <div>
                     <p className="text-2xl font-black font-headline tabular-nums">{format(game.playedAt, 'HH:mm')}</p>
-                    <p className="text-[10px] font-black text-on-surface/30 uppercase tracking-widest">{format(game.playedAt, 'd MMMM', { locale: th })}</p>
+                    <p className="text-xs font-semibold text-on-surface/40">{format(game.playedAt, 'd MMMM', { locale: th })}</p>
                   </div>
                 </div>
 
@@ -338,9 +338,9 @@ export function LogsTab({ gameHistory, sessionHistory, members, paymentHistory, 
                     <Trophy size={16} className="text-primary/60" />
                     <span className="font-black text-sm">{game.courtName}</span>
                   </div>
-                  <button 
+                  <button
                     onClick={() => setEditingGame(game)}
-                    className="text-[9px] font-black uppercase tracking-widest text-primary hover:underline"
+                    className="text-xs font-bold text-primary hover:underline"
                   >
                     ✏️ แก้ไขยอด/ผู้เล่น
                   </button>
@@ -353,7 +353,7 @@ export function LogsTab({ gameHistory, sessionHistory, members, paymentHistory, 
                     <div className="flex items-center gap-1.5 p-1.5 bg-primary/5 rounded-xl border border-primary/10">
                       <div className="flex items-center -space-x-2">
                         {game.players.slice(0, 2).map((p, i) => (
-                          <div key={`${p.id}-${i}`} className={cn('w-8 h-8 rounded-lg border-2 border-white flex items-center justify-center font-black text-[10px] shadow-sm', RANK_COLORS[p.rank])}>
+                          <div key={`${p.id}-${i}`} className={cn('w-8 h-8 rounded-lg border-2 border-white flex items-center justify-center font-bold text-xs shadow-sm', RANK_COLORS[p.rank])}>
                             {p.rank}
                           </div>
                         ))}
@@ -363,13 +363,13 @@ export function LogsTab({ gameHistory, sessionHistory, members, paymentHistory, 
                       </span>
                     </div>
 
-                    <span className="text-[10px] font-black text-on-surface/20 uppercase">VS</span>
+                    <span className="text-xs font-bold text-on-surface/25">VS</span>
 
                     {/* Team B */}
                     <div className="flex items-center gap-1.5 p-1.5 bg-secondary/5 rounded-xl border border-secondary/10">
                       <div className="flex items-center -space-x-2">
                         {game.players.slice(2, 4).map((p, i) => (
-                          <div key={`${p.id}-${i}`} className={cn('w-8 h-8 rounded-lg border-2 border-white flex items-center justify-center font-black text-[10px] shadow-sm', RANK_COLORS[p.rank])}>
+                          <div key={`${p.id}-${i}`} className={cn('w-8 h-8 rounded-lg border-2 border-white flex items-center justify-center font-bold text-xs shadow-sm', RANK_COLORS[p.rank])}>
                             {p.rank}
                           </div>
                         ))}
@@ -384,11 +384,11 @@ export function LogsTab({ gameHistory, sessionHistory, members, paymentHistory, 
                 {/* Fees */}
                 <div className="flex items-center gap-6 shrink-0 md:border-l md:border-on-surface/5 md:pl-6 text-right">
                   <div>
-                    <p className="text-[10px] font-black text-on-surface/30 uppercase tracking-widest">ใช้ลูก</p>
+                    <p className="text-xs font-semibold text-on-surface/40">ใช้ลูก</p>
                     <p className="font-headline font-black text-xl">🏸 {game.shuttlesUsed}</p>
                   </div>
                   <div>
-                    <p className="text-[10px] font-black text-on-surface/30 uppercase tracking-widest">รวม/คน</p>
+                    <p className="text-xs font-semibold text-on-surface/40">รวม/คน</p>
                     <p className="font-headline font-black text-2xl text-primary">฿{(game.shuttleCostPerPerson + (game.courtFeePerPerson || 0)).toFixed(0)}</p>
                   </div>
                 </div>

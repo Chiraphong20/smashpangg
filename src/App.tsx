@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Users, LayoutDashboard, Trophy, Banknote, UserPlus, Search, ShoppingCart, History, FileText, ChevronLeft, ChevronRight, Menu, Settings } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from './lib/utils';
-import { Member, Court, Rank, RANKS, RANK_COLORS, Snack, PaymentRecord, GameRecord, DEFAULT_SNACKS, SessionRecord } from './types';
+import { Member, Court, Rank, RANKS, RANK_COLORS, Snack, PaymentRecord, GameRecord, DEFAULT_SNACKS, SessionRecord, CourtQueueSlot, QueuePlayer } from './types';
 import { format } from 'date-fns';
 import confetti from 'canvas-confetti';
 
@@ -15,6 +15,7 @@ import { AddCourtModal } from './components/AddCourtModal';
 import { ManageProductsModal } from './components/ManageProductsModal';
 import { ImportMembersModal } from './components/ImportMembersModal';
 import { LogsTab } from './components/LogsTab';
+import { QueueView } from './components/QueueView';
 import { RANK_WEIGHTS } from './types';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
@@ -68,6 +69,12 @@ export default function App() {
   const [importIsSession, setImportIsSession] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [isInitialLoading, setIsInitialLoading] = useState(true);
+  const [courtQueues, setCourtQueues] = useState<Record<string, CourtQueueSlot[]>>({});
+  const [nextQueuePrompt, setNextQueuePrompt] = useState<{
+    courtId: string; courtName: string; slot: CourtQueueSlot; emptyCourts: Court[];
+  } | null>(null);
+
+  const isQueueView = useMemo(() => new URLSearchParams(window.location.search).has('queue'), []);
 
   // Sync to API on startup
   useEffect(() => {
@@ -98,6 +105,7 @@ export default function App() {
         if (loadedState?.courtFeePerPerson) setCourtFeePerPerson(loadedState.courtFeePerPerson);
         if (loadedState?.shuttlePrice) setShuttlePrice(loadedState.shuttlePrice);
         if (loadedState?.sessionStartDate) setSessionStartDate(loadedState.sessionStartDate);
+        if (loadedState?.courtQueues) setCourtQueues(loadedState.courtQueues);
         if (loadedState?.snacks && loadedState.snacks.length > 4) {
           setSnacks(loadedState.snacks);
         } else {
@@ -155,7 +163,8 @@ export default function App() {
             courtFeePerPerson,
             shuttlePrice,
             snacks,
-            sessionStartDate
+            sessionStartDate,
+            courtQueues
           })
         });
       } catch (err) {
@@ -163,7 +172,7 @@ export default function App() {
       }
     }, 2000);
     return () => clearTimeout(handler);
-  }, [members, courts, gameHistory, paymentHistory, sessionHistory, courtFeePerPerson, shuttlePrice, rankMemory, snacks, sessionStartDate]);
+  }, [members, courts, gameHistory, paymentHistory, sessionHistory, courtFeePerPerson, shuttlePrice, rankMemory, snacks, sessionStartDate, courtQueues]);
 
   // Debounced save MASTER DATA (Permanent members & Settings) to MySQL
   useEffect(() => {
@@ -579,11 +588,76 @@ export default function App() {
       };
     }));
 
-    setCourts(prev => prev.map(c =>
-      c.id === courtId ? { ...c, players: [null, null, null, null], status: 'empty', shuttlecocks: 1 } : c
-    ));
+    const clearedCourts = courts.map(c =>
+      c.id === courtId ? { ...c, players: [null, null, null, null], status: 'empty' as const, shuttlecocks: 1 } : c
+    );
+    setCourts(clearedCourts);
     setGameHistory(prev => [gameRec, ...prev]);
     confetti({ particleCount: 80, spread: 60, origin: { y: 0.6 } });
+
+    // ตรวจสอบ next queue slot
+    const nextSlot = courtQueues[courtId]?.[0];
+    if (nextSlot) {
+      const emptyCourts = clearedCourts.filter(c => c.status === 'empty');
+      setTimeout(() => setNextQueuePrompt({
+        courtId,
+        courtName: court.name,
+        slot: nextSlot,
+        emptyCourts,
+      }), 400);
+    }
+  };
+
+  // ── COURT QUEUE MANAGEMENT ──────────────────────────────────────────────────
+  const addToCourtQueue = (courtId: string, slot: CourtQueueSlot) => {
+    setCourtQueues(prev => ({ ...prev, [courtId]: [...(prev[courtId] || []), slot] }));
+  };
+
+  const removeFromCourtQueue = (courtId: string, slotId: string) => {
+    setCourtQueues(prev => ({ ...prev, [courtId]: (prev[courtId] || []).filter(s => s.id !== slotId) }));
+  };
+
+  const updateCourtQueueSlot = (courtId: string, slot: CourtQueueSlot) => {
+    setCourtQueues(prev => ({
+      ...prev,
+      [courtId]: (prev[courtId] || []).map(s => s.id === slot.id ? slot : s),
+    }));
+  };
+
+  const moveCourtQueueSlot = (courtId: string, slotId: string, dir: 'up' | 'down') => {
+    setCourtQueues(prev => {
+      const slots = [...(prev[courtId] || [])];
+      const idx = slots.findIndex(s => s.id === slotId);
+      if (idx === -1) return prev;
+      const next = dir === 'up' ? idx - 1 : idx + 1;
+      if (next < 0 || next >= slots.length) return prev;
+      [slots[idx], slots[next]] = [slots[next], slots[idx]];
+      return { ...prev, [courtId]: slots };
+    });
+  };
+
+  const confirmNextQueue = (targetCourtId: string, slot: CourtQueueSlot, sourceCourtId: string) => {
+    const court = courts.find(c => c.id === targetCourtId);
+    if (!court) return;
+    const allPlayers = [...slot.teamA, ...slot.teamB];
+    const playerIds = allPlayers.map(p => p.memberId).filter(Boolean) as string[];
+    const newPlayers: (string | null)[] = [
+      slot.teamA[0]?.memberId || null,
+      slot.teamA[1]?.memberId || null,
+      slot.teamB[0]?.memberId || null,
+      slot.teamB[1]?.memberId || null,
+    ];
+    setCourts(prev => prev.map(c =>
+      c.id === targetCourtId ? { ...c, players: newPlayers, status: 'active' } : c
+    ));
+    setMembers(prev => prev.map(m =>
+      playerIds.includes(m.id) ? { ...m, status: 'playing' } : m
+    ));
+    setCourtQueues(prev => ({
+      ...prev,
+      [sourceCourtId]: (prev[sourceCourtId] || []).filter(s => s.id !== slot.id),
+    }));
+    setNextQueuePrompt(null);
   };
 
   // ── PLAYER MANAGEMENT ─────────────────────────────────────────────────────
@@ -986,24 +1060,102 @@ export default function App() {
     { id: 'settings', icon: Settings, label: 'ตั้งค่าระบบ' },
   ];
 
+  if (isQueueView) return <QueueView />;
+
   return (
     <>
       <AnimatePresence>
         {isInitialLoading && <SplashScreen key="splash" />}
       </AnimatePresence>
 
+      {/* Next Queue Prompt Overlay */}
+      <AnimatePresence>
+        {nextQueuePrompt && (
+          <motion.div
+            initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[300] flex items-end sm:items-center justify-center p-4"
+          >
+            <motion.div className="absolute inset-0 bg-on-surface/50 backdrop-blur-sm" onClick={() => setNextQueuePrompt(null)} />
+            <motion.div
+              initial={{ y: 60, opacity: 0, scale: 0.95 }}
+              animate={{ y: 0, opacity: 1, scale: 1 }}
+              exit={{ y: 60, opacity: 0, scale: 0.95 }}
+              className="relative bg-white rounded-[2rem] p-6 w-full max-w-md shadow-2xl z-10"
+            >
+              <div className="text-center mb-5">
+                <div className="w-14 h-14 bg-primary/10 rounded-2xl flex items-center justify-center mx-auto mb-3">
+                  <span className="text-3xl">⏭</span>
+                </div>
+                <h3 className="font-headline font-black text-2xl">มีคิวถัดไป!</h3>
+                <p className="text-sm text-on-surface/50 mt-1">{nextQueuePrompt.courtName}</p>
+              </div>
+
+              {/* Players preview */}
+              <div className="bg-background rounded-2xl p-4 mb-5">
+                <div className="grid grid-cols-[1fr_auto_1fr] gap-2 items-center">
+                  <div className="space-y-1.5">
+                    {nextQueuePrompt.slot.teamA.map((p, i) => (
+                      <div key={i} className="flex items-center gap-2">
+                        <span className={cn('w-7 h-7 rounded-lg flex items-center justify-center text-[10px] font-bold shrink-0', RANK_COLORS[p.rank])}>{p.rank}</span>
+                        <span className="font-bold text-sm truncate">{p.name}</span>
+                      </div>
+                    ))}
+                  </div>
+                  <span className="text-on-surface/20 font-black text-xs text-center">VS</span>
+                  <div className="space-y-1.5">
+                    {nextQueuePrompt.slot.teamB.map((p, i) => (
+                      <div key={i} className="flex items-center justify-end gap-2">
+                        <span className="font-bold text-sm truncate">{p.name}</span>
+                        <span className={cn('w-7 h-7 rounded-lg flex items-center justify-center text-[10px] font-bold shrink-0', RANK_COLORS[p.rank])}>{p.rank}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+                {nextQueuePrompt.slot.note && (
+                  <p className="text-xs text-on-surface/40 text-center mt-2 border-t border-on-surface/5 pt-2">{nextQueuePrompt.slot.note}</p>
+                )}
+              </div>
+
+              {/* Action buttons */}
+              <div className="space-y-2">
+                <button
+                  onClick={() => confirmNextQueue(nextQueuePrompt.courtId, nextQueuePrompt.slot, nextQueuePrompt.courtId)}
+                  className="w-full bg-primary text-white py-4 rounded-2xl font-bold text-base shadow-lg shadow-primary/20 hover:scale-[1.02] active:scale-95 transition-all"
+                >
+                  เริ่มตีที่{nextQueuePrompt.courtName}เลย
+                </button>
+                {nextQueuePrompt.emptyCourts.filter(c => c.id !== nextQueuePrompt.courtId).map(c => (
+                  <button key={c.id}
+                    onClick={() => confirmNextQueue(c.id, nextQueuePrompt.slot, nextQueuePrompt.courtId)}
+                    className="w-full bg-secondary/10 text-secondary py-3 rounded-2xl font-bold text-sm hover:bg-secondary/20 transition-all"
+                  >
+                    ย้ายไปตีที่ {c.name} แทน
+                  </button>
+                ))}
+                <button
+                  onClick={() => setNextQueuePrompt(null)}
+                  className="w-full py-3 rounded-2xl font-bold text-sm text-on-surface/40 hover:bg-on-surface/5 transition-all"
+                >
+                  ข้ามไปก่อน
+                </button>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <div className="min-h-screen bg-background flex flex-col lg:flex-row">
         {/* Sidebar */}
         <aside className={cn(
-          "hidden lg:flex flex-col fixed left-0 top-0 h-screen bg-surface-container border-r border-on-surface/5 transition-all duration-300 z-[100]",
-          isSidebarCollapsed ? "w-20 p-2" : "w-64 p-4"
+          "hidden lg:flex flex-col fixed left-0 top-0 h-screen bg-surface-container border-r border-on-surface/8 transition-all duration-300 z-[100]",
+          isSidebarCollapsed ? "w-20 p-3" : "w-72 p-5"
         )}>
-          <div className={cn("mb-8 flex items-center gap-3 transition-all", isSidebarCollapsed ? "justify-center pt-4" : "px-2 pt-6")}>
-            <div className="w-10 h-10 bg-primary rounded-full flex items-center justify-center text-white font-black italic text-xl shadow-lg shadow-primary/20 shrink-0">TJ</div>
+          <div className={cn("mb-8 flex items-center gap-3.5 transition-all", isSidebarCollapsed ? "justify-center pt-4" : "px-2 pt-6")}>
+            <div className="w-12 h-12 bg-primary rounded-2xl flex items-center justify-center text-white font-black italic text-2xl shadow-lg shadow-primary/25 shrink-0">TJ</div>
             {!isSidebarCollapsed && (
               <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-                <h4 className="font-headline font-black text-lg text-on-surface tracking-tight">เตียเจริญ</h4>
-                <p className="text-[10px] font-bold text-primary uppercase tracking-widest">by เน็ตน่ารัก</p>
+                <h4 className="font-headline font-black text-xl text-on-surface tracking-tight">เตียเจริญ</h4>
+                <p className="text-xs font-semibold text-primary/70">by เน็ตน่ารัก</p>
               </motion.div>
             )}
           </div>
@@ -1012,55 +1164,55 @@ export default function App() {
             {tabs.map(item => (
               <button key={item.id} onClick={() => setActiveTab(item.id as Tab)}
                 title={isSidebarCollapsed ? item.label : ""}
-                className={cn('w-full flex items-center rounded-xl font-bold transition-all duration-200',
-                  isSidebarCollapsed ? "justify-center p-3" : "gap-3 px-4 py-3",
-                  activeTab === item.id ? 'bg-white text-primary shadow-sm translate-x-1' : 'text-on-surface/60 hover:text-on-surface hover:bg-white/50')}>
-                <item.icon size={20} className="shrink-0" />
+                className={cn('w-full flex items-center rounded-xl font-semibold text-[15px] transition-all duration-200',
+                  isSidebarCollapsed ? "justify-center p-3.5" : "gap-3.5 px-4 py-3.5",
+                  activeTab === item.id ? 'bg-white text-primary shadow-sm translate-x-1' : 'text-on-surface/55 hover:text-on-surface hover:bg-white/60')}>
+                <item.icon size={22} className="shrink-0" />
                 {!isSidebarCollapsed && <span>{item.label}</span>}
               </button>
             ))}
           </nav>
 
-          <div className="mt-auto pt-4 border-t border-on-surface/5 space-y-4">
+          <div className="mt-auto pt-4 border-t border-on-surface/8 space-y-3">
             {!isSidebarCollapsed ? (
-              <div className="bg-primary/5 p-4 rounded-2xl">
-                <p className="text-[10px] font-black text-primary uppercase mb-1">รายรับวันนี้</p>
-                <p className="text-xl font-headline font-black text-on-surface">
+              <div className="bg-primary/8 p-4 rounded-2xl">
+                <p className="text-xs font-bold text-primary/80 mb-1">รายรับวันนี้</p>
+                <p className="text-2xl font-headline font-black text-on-surface">
                   ฿{(members.reduce((a, m) => a + m.balance, 0) + paymentHistory.reduce((a, r) => a + r.amount, 0)).toLocaleString()}
                 </p>
               </div>
             ) : (
               <div className="flex justify-center text-primary" title="รายรับวันนี้">
-                <Banknote size={20} />
+                <Banknote size={22} />
               </div>
             )}
 
             <button onClick={() => setShowManageProducts(true)}
               title={isSidebarCollapsed ? "จัดการสินค้า" : ""}
-              className={cn("w-full flex items-center text-primary/80 font-bold hover:bg-primary/5 rounded-xl transition-colors",
-                isSidebarCollapsed ? "justify-center p-3" : "gap-3 px-4 py-3")}>
-              <ShoppingCart size={18} className="shrink-0" />
+              className={cn("w-full flex items-center text-primary/75 font-semibold text-[15px] hover:bg-primary/8 rounded-xl transition-colors",
+                isSidebarCollapsed ? "justify-center p-3.5" : "gap-3.5 px-4 py-3")}>
+              <ShoppingCart size={20} className="shrink-0" />
               {!isSidebarCollapsed && <span>จัดการสินค้า</span>}
             </button>
 
             <button onClick={() => setShowImport(true)}
               title={isSidebarCollapsed ? "นำเข้าจากไลน์" : ""}
-              className={cn("w-full flex items-center text-secondary/80 font-bold hover:bg-secondary/5 rounded-xl transition-colors",
-                isSidebarCollapsed ? "justify-center p-3" : "gap-3 px-4 py-3")}>
-              <FileText size={18} className="shrink-0" />
+              className={cn("w-full flex items-center text-secondary/75 font-semibold text-[15px] hover:bg-secondary/8 rounded-xl transition-colors",
+                isSidebarCollapsed ? "justify-center p-3.5" : "gap-3.5 px-4 py-3")}>
+              <FileText size={20} className="shrink-0" />
               {!isSidebarCollapsed && <span>นำเข้าจากไลน์</span>}
             </button>
 
             {/* Cloud Status Indicator */}
-            <div className="px-5 pb-6">
-              <div className="flex items-center gap-3">
-                <div className="relative flex items-center justify-center">
-                  <div className={cn("w-2.5 h-2.5 rounded-full transition-all duration-500", isSyncing ? "bg-primary animate-pulse scale-110 shadow-[0_0_12px_rgba(var(--primary-rgb),0.6)]" : "bg-green-500 shadow-[0_0_8px_rgba(22,163,74,0.4)]")} />
-                  {isSyncing && <div className="absolute inset-0 w-2.5 h-2.5 rounded-full bg-primary animate-ping opacity-40" />}
+            <div className="px-4 pb-5">
+              <div className="flex items-center gap-2.5">
+                <div className="relative flex items-center justify-center shrink-0">
+                  <div className={cn("w-3 h-3 rounded-full transition-all duration-500", isSyncing ? "bg-primary animate-pulse scale-110" : "bg-green-500")} />
+                  {isSyncing && <div className="absolute inset-0 w-3 h-3 rounded-full bg-primary animate-ping opacity-40" />}
                 </div>
                 {!isSidebarCollapsed && (
-                  <span className={cn("text-[9px] font-black uppercase tracking-[0.2em] transition-colors duration-300", isSyncing ? "text-primary italic" : "text-on-surface/30")}>
-                    {isSyncing ? "Cloud Synchronizing..." : "DB Connected & Synced"}
+                  <span className={cn("text-[11px] font-semibold transition-colors duration-300", isSyncing ? "text-primary" : "text-on-surface/35")}>
+                    {isSyncing ? "กำลังซิงค์ข้อมูล..." : "เชื่อมต่อแล้ว"}
                   </span>
                 )}
               </div>
@@ -1068,7 +1220,7 @@ export default function App() {
 
             <button
               onClick={() => setIsSidebarCollapsed(!isSidebarCollapsed)}
-              className="w-full flex items-center justify-center p-3 text-on-surface/20 hover:text-on-surface/60 transition-colors"
+              className="w-full flex items-center justify-center p-3 text-on-surface/25 hover:text-on-surface/55 transition-colors rounded-xl hover:bg-white/50"
             >
               {isSidebarCollapsed ? <ChevronRight size={20} /> : <ChevronLeft size={20} />}
             </button>
@@ -1078,7 +1230,7 @@ export default function App() {
         {/* Main Container */}
         <div className={cn(
           "flex-1 transition-all duration-300",
-          isSidebarCollapsed ? "lg:ml-20" : "lg:ml-64"
+          isSidebarCollapsed ? "lg:ml-20" : "lg:ml-72"
         )}>
           {/* Modals */}
           <AddMemberModal
@@ -1100,7 +1252,7 @@ export default function App() {
           />
 
           {/* Main Content Area */}
-          <main className="p-4 md:p-6 court-texture pb-24 lg:pb-6 min-h-screen">
+          <main className="p-4 md:p-6 court-texture pb-24 md:pb-6 md:pt-[4.5rem] lg:pt-6 min-h-screen">
             <AnimatePresence mode="wait">
               <motion.div key={activeTab} initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.2 }}>
                 {activeTab === 'dashboard' && (
@@ -1169,6 +1321,11 @@ export default function App() {
                     minRankFilter={minRankFilter} setMinRankFilter={setMinRankFilter}
                     maxRankFilter={maxRankFilter} setMaxRankFilter={setMaxRankFilter}
                     onAddCourt={() => setShowAddCourt(true)}
+                    courtQueues={courtQueues}
+                    onAddCourtQueue={addToCourtQueue}
+                    onRemoveCourtQueue={removeFromCourtQueue}
+                    onUpdateCourtQueue={updateCourtQueueSlot}
+                    onMoveCourtQueue={moveCourtQueueSlot}
                   />
                 )}
                 {activeTab === 'settings' && (
@@ -1188,20 +1345,60 @@ export default function App() {
           </main>
         </div>
 
-        {/* Mobile Nav */}
-        <nav className="lg:hidden fixed bottom-0 left-0 w-full bg-white/90 backdrop-blur-xl flex justify-around items-center px-4 pb-8 pt-3 z-50 border-t border-on-surface/5">
+        {/* Tablet Nav — md to lg */}
+        <nav className="hidden md:flex lg:hidden fixed top-0 left-0 right-0 z-[100] bg-white/95 backdrop-blur-xl border-b border-on-surface/8 shadow-sm h-14 items-center px-4 gap-2">
+          {/* Logo */}
+          <div className="flex items-center gap-2.5 shrink-0 mr-3">
+            <div className="w-8 h-8 bg-primary rounded-xl flex items-center justify-center text-white font-black italic text-sm shadow-md shadow-primary/25">TJ</div>
+            <span className="font-headline font-black text-base text-on-surface">เตียเจริญ</span>
+          </div>
+
+          {/* Tabs */}
+          <div className="flex flex-1 gap-1 overflow-x-auto no-scrollbar">
+            {tabs.map(item => (
+              <button key={item.id} onClick={() => setActiveTab(item.id as Tab)}
+                className={cn(
+                  'flex items-center gap-2 px-4 py-2 rounded-xl font-semibold text-sm transition-all whitespace-nowrap shrink-0',
+                  activeTab === item.id
+                    ? 'bg-primary/10 text-primary'
+                    : 'text-on-surface/50 hover:text-on-surface hover:bg-on-surface/5'
+                )}>
+                <item.icon size={17} className="shrink-0" />
+                <span>{item.label}</span>
+              </button>
+            ))}
+          </div>
+
+          {/* Right actions */}
+          <div className="flex items-center gap-1 shrink-0 ml-2">
+            <button onClick={() => setShowManageProducts(true)}
+              className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-semibold text-on-surface/50 hover:text-primary hover:bg-primary/5 transition-all whitespace-nowrap">
+              <ShoppingCart size={17} /> สินค้า
+            </button>
+            <button onClick={() => { setImportIsSession(false); setShowImport(true); }}
+              className="flex items-center gap-2 px-3 py-2 rounded-xl text-sm font-semibold text-on-surface/50 hover:text-secondary hover:bg-secondary/5 transition-all whitespace-nowrap">
+              <FileText size={17} /> นำเข้า
+            </button>
+            <div className="flex items-center gap-1.5 px-3 py-2">
+              <div className={cn('w-2 h-2 rounded-full', isSyncing ? 'bg-primary animate-pulse' : 'bg-green-500')} />
+            </div>
+          </div>
+        </nav>
+
+        {/* Mobile Nav — below md */}
+        <nav className="md:hidden fixed bottom-0 left-0 w-full bg-white/95 backdrop-blur-xl flex justify-around items-center px-2 pb-7 pt-2.5 z-50 border-t border-on-surface/8 shadow-[0_-4px_20px_rgba(0,0,0,0.06)]">
           {tabs.map(item => (
             <button key={item.id} onClick={() => setActiveTab(item.id as Tab)}
-              className={cn('flex flex-col items-center gap-1 p-2 rounded-2xl transition-all',
-                activeTab === item.id ? 'text-primary' : 'text-on-surface/40')}>
-              <item.icon size={22} />
-              <span className="text-[9px] font-black uppercase">{item.label}</span>
+              className={cn('flex flex-col items-center gap-1.5 px-3 py-2 rounded-2xl transition-all',
+                activeTab === item.id ? 'text-primary bg-primary/8' : 'text-on-surface/40')}>
+              <item.icon size={24} />
+              <span className="text-[11px] font-bold">{item.label}</span>
             </button>
           ))}
           <button onClick={() => setShowManageProducts(true)}
-            className="flex flex-col items-center gap-1 p-2 rounded-2xl transition-all text-on-surface/40">
-            <ShoppingCart size={22} />
-            <span className="text-[9px] font-black uppercase">สินค้า</span>
+            className="flex flex-col items-center gap-1.5 px-3 py-2 rounded-2xl transition-all text-on-surface/40">
+            <ShoppingCart size={24} />
+            <span className="text-[11px] font-bold">สินค้า</span>
           </button>
         </nav>
       </div>
@@ -1253,7 +1450,7 @@ function SplashScreen() {
           />
         </div>
 
-        <p className="mt-6 text-[9px] font-black text-white/20 uppercase tracking-widest animate-pulse">Synchronizing with Cloud DB...</p>
+        <p className="mt-6 text-xs font-semibold text-white/30 animate-pulse">กำลังเชื่อมต่อระบบ...</p>
       </div>
 
       {/* Shuttlecock animation */}

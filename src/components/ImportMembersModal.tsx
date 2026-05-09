@@ -193,7 +193,7 @@ export function ImportMembersModal({ open, onClose, onImport, rankMemory, existi
               {isSessionMode ? 'ลงชื่อร่วมเซสชัน (รายวัน)' : 'เพิ่มสมาชิกเข้าฐานข้อมูล'}
             </h2>
             <div className="flex gap-4 mt-1">
-              <span className="text-[10px] font-black uppercase tracking-widest text-primary italic">
+              <span className="text-xs font-semibold text-primary italic">
                 จากคิวไลน์ (LINE Queue)
               </span>
             </div>
@@ -207,7 +207,7 @@ export function ImportMembersModal({ open, onClose, onImport, rankMemory, existi
             <>
               {/* Example */}
               <div className="bg-primary/5 rounded-2xl p-4 text-xs space-y-1">
-                <p className="font-black text-primary uppercase tracking-widest text-[10px] mb-2">
+                <p className="font-bold text-primary text-xs mb-2">
                   {mode === 'line' ? 'ตัวอย่างรายชื่อที่ระบบรองรับ' : 'ตัวอย่างรูปแบบฐานข้อมูล'}
                 </p>
                 {mode === 'line' ? (
@@ -256,10 +256,10 @@ export function ImportMembersModal({ open, onClose, onImport, rankMemory, existi
                         className={cn("w-full bg-transparent font-bold text-sm focus:outline-none truncate", isExisting ? "text-primary" : "text-on-surface")}
                       />
                       {isExisting && (
-                        <p className="text-[9px] font-black uppercase text-primary/60 tracking-widest leading-none">สมาชิกเดิมในระบบ ✓</p>
+                        <p className="text-xs font-semibold text-primary/60 leading-none">สมาชิกเดิมในระบบ ✓</p>
                       )}
                       {!isExisting && mode === 'line' && (
-                        <p className="text-[9px] font-black uppercase text-secondary tracking-widest leading-none">สมาชิกใหม่ (เกสต์) 👤</p>
+                        <p className="text-xs font-semibold text-secondary leading-none">สมาชิกใหม่ (เกสต์) 👤</p>
                       )}
                     </div>
                     {/* Rank selector */}
@@ -268,7 +268,7 @@ export function ImportMembersModal({ open, onClose, onImport, rankMemory, existi
                         <button key={r} onClick={() => updateRank(p.id, r)}
                           title={RANK_LEVEL_LABELS[r]}
                           className={cn(
-                            'w-7 h-7 rounded-lg text-[9px] font-black transition-all border-2 border-transparent',
+                            'w-7 h-7 rounded-lg text-xs font-bold transition-all border-2 border-transparent',
                             p.rank === r
                               ? RANK_COLORS[r] + ' border-primary shadow-sm scale-110'
                               : 'bg-on-surface/5 text-on-surface/40 hover:bg-on-surface/10'

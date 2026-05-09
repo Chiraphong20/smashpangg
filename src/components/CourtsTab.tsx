@@ -2,7 +2,7 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Bolt, X, Plus, Trash2, ShoppingCart, Search, Check, RotateCcw, Lock, ChevronDown } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
-import { Member, Court, Snack, GameRecord, Rank, RANKS, RANK_WEIGHTS, RANK_COLORS, RANK_LEVEL_LABELS } from '../types';
+import { Member, Court, Snack, GameRecord, Rank, RANKS, RANK_WEIGHTS, RANK_COLORS, RANK_LEVEL_LABELS, CourtQueueSlot, QueuePlayer } from '../types';
 import { format } from 'date-fns';
 import { POSModal } from './POSModal';
 
@@ -29,6 +29,11 @@ interface Props {
   maxRankFilter: Rank;
   setMaxRankFilter: (r: Rank) => void;
   onAddCourt: () => void;
+  courtQueues: Record<string, CourtQueueSlot[]>;
+  onAddCourtQueue: (courtId: string, slot: CourtQueueSlot) => void;
+  onRemoveCourtQueue: (courtId: string, slotId: string) => void;
+  onUpdateCourtQueue: (courtId: string, slot: CourtQueueSlot) => void;
+  onMoveCourtQueue: (courtId: string, slotId: string, dir: 'up' | 'down') => void;
 }
 
 // ── Player Picker ─────────────────────────────────────────────────────────────
@@ -200,7 +205,7 @@ function SlotCard({ slotIndex, courtId, playerId, team, members, onSelect, locke
               <Plus size={20} className="text-white/30" />
             </div>
             <span className="text-xs font-bold text-white/40">เพิ่มผู้เล่น</span>
-            {!locked && <span className="text-[10px] text-white/25">แตะ · ลาก · ดับเบิ้ลคลิก</span>}
+            {!locked && <span className="text-xs text-white/35">แตะ หรือ ลากมาวาง</span>}
           </div>
         )}
         {open && !locked && <div className="absolute inset-0 ring-2 ring-white rounded-2xl pointer-events-none" />}
@@ -221,6 +226,197 @@ function SlotCard({ slotIndex, courtId, playerId, team, members, onSelect, locke
   );
 }
 
+// ── Player Search Picker (for Queue Slot Editor) ─────────────────────────────
+function PlayerSearchPicker({ members, selected, onSelect, placeholder, excludeIds = [] }: {
+  members: Member[];
+  selected: QueuePlayer | null;
+  onSelect: (m: Member | null) => void;
+  placeholder?: string;
+  excludeIds?: string[];
+}) {
+  const [open, setOpen] = useState(false);
+  const [q, setQ] = useState('');
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  const filtered = members
+    .filter(m => !excludeIds.includes(m.id))
+    .filter(m => !q || m.name.toLowerCase().includes(q.toLowerCase()))
+    .sort((a, b) => {
+      if (a.status === 'waiting' && b.status !== 'waiting') return -1;
+      if (b.status === 'waiting' && a.status !== 'waiting') return 1;
+      return a.name.localeCompare(b.name, 'th');
+    })
+    .slice(0, 20);
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen(o => !o)}
+        className={cn(
+          'w-full flex items-center gap-2 px-3 py-2.5 rounded-xl text-sm font-semibold border-2 transition-all text-left',
+          selected
+            ? 'bg-primary/5 border-primary/20 text-on-surface'
+            : 'bg-background border-on-surface/5 text-on-surface/35 hover:border-primary/20'
+        )}
+      >
+        {selected ? (
+          <>
+            <span className={cn('w-6 h-6 rounded-md flex items-center justify-center text-[10px] font-bold shrink-0', RANK_COLORS[selected.rank])}>
+              {selected.rank}
+            </span>
+            <span className="flex-1 truncate">{selected.name}</span>
+            <button
+              type="button"
+              onClick={e => { e.stopPropagation(); onSelect(null); }}
+              className="p-0.5 text-on-surface/20 hover:text-error transition-colors"
+            >
+              <X size={13} />
+            </button>
+          </>
+        ) : (
+          <span className="text-on-surface/35">{placeholder || '+ เลือกผู้เล่น'}</span>
+        )}
+      </button>
+
+      {open && (
+        <div className="absolute top-full left-0 right-0 z-50 mt-1 bg-white rounded-2xl shadow-2xl border border-on-surface/5 overflow-hidden">
+          <div className="p-2 border-b border-on-surface/5">
+            <input
+              autoFocus
+              value={q}
+              onChange={e => setQ(e.target.value)}
+              placeholder="ค้นหาชื่อ..."
+              className="w-full px-3 py-1.5 bg-background rounded-xl text-sm font-semibold focus:outline-none"
+            />
+          </div>
+          <div className="max-h-44 overflow-y-auto">
+            {filtered.map(m => (
+              <button
+                key={m.id}
+                type="button"
+                onClick={() => { onSelect(m); setOpen(false); setQ(''); }}
+                className="w-full flex items-center gap-2 px-3 py-2.5 hover:bg-primary/5 text-left transition-colors"
+              >
+                <span className={cn('w-7 h-7 rounded-lg flex items-center justify-center text-xs font-bold shrink-0', RANK_COLORS[m.rank])}>
+                  {m.rank}
+                </span>
+                <span className="text-sm font-semibold flex-1 truncate">{m.name}</span>
+                <span className={cn('text-xs font-bold px-2 py-0.5 rounded-full',
+                  m.status === 'waiting' ? 'bg-secondary/10 text-secondary' :
+                  m.status === 'playing' ? 'bg-green-100 text-green-700' :
+                  'bg-on-surface/5 text-on-surface/30'
+                )}>
+                  {m.status === 'waiting' ? 'รอ' : m.status === 'playing' ? 'ตีอยู่' : 'พัก'}
+                </span>
+              </button>
+            ))}
+            {filtered.length === 0 && (
+              <p className="text-center py-4 text-xs text-on-surface/30 font-semibold">ไม่พบสมาชิก</p>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ── Queue Slot Editor Modal ───────────────────────────────────────────────────
+function QueueSlotEditor({ members, slot, onSave, onClose }: {
+  members: Member[];
+  slot?: Partial<CourtQueueSlot>;
+  onSave: (slot: CourtQueueSlot) => void;
+  onClose: () => void;
+}) {
+  const [teamA, setTeamA] = useState<(QueuePlayer | null)[]>([
+    slot?.teamA?.[0] ?? null,
+    slot?.teamA?.[1] ?? null,
+  ]);
+  const [teamB, setTeamB] = useState<(QueuePlayer | null)[]>([
+    slot?.teamB?.[0] ?? null,
+    slot?.teamB?.[1] ?? null,
+  ]);
+  const [note, setNote] = useState(slot?.note ?? '');
+
+  const pick = (team: 'A' | 'B', idx: number, m: Member | null) => {
+    const p = m ? { memberId: m.id, name: m.name, rank: m.rank } : null;
+    if (team === 'A') setTeamA(prev => prev.map((v, i) => i === idx ? p : v));
+    else setTeamB(prev => prev.map((v, i) => i === idx ? p : v));
+  };
+
+  const handleSave = () => {
+    const ta = teamA.filter(Boolean) as QueuePlayer[];
+    const tb = teamB.filter(Boolean) as QueuePlayer[];
+    if (ta.length === 0 && tb.length === 0) { alert('กรุณาเลือกผู้เล่นอย่างน้อย 1 คน'); return; }
+    onSave({
+      id: slot?.id ?? Math.random().toString(36).substr(2, 9),
+      teamA: ta,
+      teamB: tb,
+      note: note.trim() || undefined,
+    });
+  };
+
+  return (
+    <div className="fixed inset-0 z-[250] flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-on-surface/60 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative bg-white rounded-[2rem] p-6 w-full max-w-sm shadow-2xl z-10">
+        <div className="flex items-center justify-between mb-5">
+          <h3 className="font-headline font-black text-xl">{slot?.id ? 'แก้ไขคิว' : 'เพิ่มคิวใหม่'}</h3>
+          <button onClick={onClose} className="p-2 hover:bg-background rounded-full transition-colors">
+            <X size={20} />
+          </button>
+        </div>
+
+        {(() => {
+          const allIds = [teamA[0]?.memberId, teamA[1]?.memberId, teamB[0]?.memberId, teamB[1]?.memberId].filter(Boolean) as string[];
+          const excl = (own: string | undefined) => allIds.filter(id => id !== own);
+          return (
+            <div className="space-y-4 mb-5">
+              <div className="space-y-2">
+                <p className="text-xs font-bold text-primary/60">ทีม A</p>
+                <PlayerSearchPicker members={members} selected={teamA[0]} onSelect={m => pick('A', 0, m)} placeholder="ผู้เล่น A1" excludeIds={excl(teamA[0]?.memberId)} />
+                <PlayerSearchPicker members={members} selected={teamA[1]} onSelect={m => pick('A', 1, m)} placeholder="ผู้เล่น A2" excludeIds={excl(teamA[1]?.memberId)} />
+              </div>
+
+              <div className="text-center text-on-surface/20 font-black">VS</div>
+
+              <div className="space-y-2">
+                <p className="text-xs font-bold text-secondary/60">ทีม B</p>
+                <PlayerSearchPicker members={members} selected={teamB[0]} onSelect={m => pick('B', 0, m)} placeholder="ผู้เล่น B1" excludeIds={excl(teamB[0]?.memberId)} />
+                <PlayerSearchPicker members={members} selected={teamB[1]} onSelect={m => pick('B', 1, m)} placeholder="ผู้เล่น B2" excludeIds={excl(teamB[1]?.memberId)} />
+              </div>
+            </div>
+          );
+        })()}
+
+        <input
+          value={note}
+          onChange={e => setNote(e.target.value)}
+          placeholder="หมายเหตุ (ไม่บังคับ)"
+          className="w-full px-4 py-2.5 bg-background rounded-xl text-sm font-semibold focus:outline-none focus:ring-2 focus:ring-primary/20 mb-4 border-none"
+        />
+
+        <div className="flex gap-2">
+          <button onClick={onClose} className="flex-1 py-3 rounded-xl font-bold text-sm text-on-surface/50 bg-background hover:bg-on-surface/5 transition-all">
+            ยกเลิก
+          </button>
+          <button onClick={handleSave} className="flex-1 bg-primary text-white py-3 rounded-xl font-bold text-sm shadow-lg shadow-primary/20 hover:scale-[1.02] active:scale-95 transition-all">
+            บันทึก
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 // ── Game History Row (editable) ──────────────────────────────────────────────
 function GameRow({ game, onEditGame, onUndoGame, shuttlePrice }: {
   key?: string;
@@ -235,8 +431,8 @@ function GameRow({ game, onEditGame, onUndoGame, shuttlePrice }: {
     <div className="bg-white/8 border border-white/10 rounded-2xl p-4 flex items-center gap-4 flex-wrap">
       {/* Time */}
       <div className="shrink-0 text-center">
-        <p className="text-white/40 text-[10px] font-black uppercase">เกม</p>
-        <p className="text-white font-black text-sm">{format(game.playedAt, 'HH:mm')}</p>
+        <p className="text-white/40 text-xs font-semibold">เกม</p>
+        <p className="text-white font-bold text-sm">{format(game.playedAt, 'HH:mm')}</p>
       </div>
 
       {/* Players */}
@@ -244,14 +440,14 @@ function GameRow({ game, onEditGame, onUndoGame, shuttlePrice }: {
         <div className="flex items-center gap-1.5 flex-wrap">
           {teamA.map(p => (
             <div key={p.id} className={cn('flex items-center gap-1 px-2 py-1 rounded-lg', RANK_COLORS[p.rank])}>
-              <span className="text-[10px] font-black">{p.rank}</span>
+              <span className="text-xs font-bold">{p.rank}</span>
               <span className="text-xs font-bold">{p.name}</span>
             </div>
           ))}
           <span className="text-white/30 text-xs font-black">VS</span>
           {teamB.map(p => (
             <div key={p.id} className={cn('flex items-center gap-1 px-2 py-1 rounded-lg', RANK_COLORS[p.rank])}>
-              <span className="text-[10px] font-black">{p.rank}</span>
+              <span className="text-xs font-bold">{p.rank}</span>
               <span className="text-xs font-bold">{p.name}</span>
             </div>
           ))}
@@ -275,8 +471,8 @@ function GameRow({ game, onEditGame, onUndoGame, shuttlePrice }: {
 
       {/* Cost */}
       <div className="text-right shrink-0">
-        <p className="text-white/40 text-[10px] font-black">ค่าลูก/คน</p>
-        <p className="text-white font-headline font-black text-base">฿{game.shuttleCostPerPerson.toFixed(0)}</p>
+        <p className="text-white/45 text-xs font-semibold">ค่าลูก/คน</p>
+        <p className="text-white font-headline font-bold text-base">฿{game.shuttleCostPerPerson.toFixed(0)}</p>
       </div>
 
       {/* Undo Button */}
@@ -297,11 +493,13 @@ export function CourtsTab({
   onAutoMatch, onStartGame, onResetCourt, onRemovePlayer, onAddPlayer,
   onDeleteCourt, onAddSnack, onEditGame, onUndoGame, onUpdateCourt,
   minRankFilter, setMinRankFilter, maxRankFilter, setMaxRankFilter,
-  onAddCourt
+  onAddCourt,
+  courtQueues, onAddCourtQueue, onRemoveCourtQueue, onUpdateCourtQueue, onMoveCourtQueue,
 }: Props) {
   const [selectedCourtId, setSelectedCourtId] = useState<string | null>(courts[0]?.id ?? null);
   const [posTarget, setPosTarget] = useState<Member | null>(null);
   const [localSearch, setLocalSearch] = useState('');
+  const [editingSlot, setEditingSlot] = useState<{ courtId: string; slot?: CourtQueueSlot } | null>(null);
 
   const rankOptions = [...RANKS].reverse(); // from lower to higher P+ to VIP1
 
@@ -368,6 +566,20 @@ export function CourtsTab({
         )}
       </AnimatePresence>
 
+      {/* Queue Slot Editor */}
+      {editingSlot && (
+        <QueueSlotEditor
+          members={members}
+          slot={editingSlot.slot}
+          onClose={() => setEditingSlot(null)}
+          onSave={slot => {
+            if (editingSlot.slot?.id) onUpdateCourtQueue(editingSlot.courtId, slot);
+            else onAddCourtQueue(editingSlot.courtId, slot);
+            setEditingSlot(null);
+          }}
+        />
+      )}
+
       {/* ── Court selector ── */}
       <div className="flex gap-3 flex-wrap">
         {courts.map(court => {
@@ -422,7 +634,7 @@ export function CourtsTab({
               </div>
               {isActive && (
                 <div className="bg-green-50 px-3 py-1 rounded-full border border-green-200">
-                  <p className="text-green-700 font-black text-[10px] uppercase">🏸 กำลังตี</p>
+                  <p className="text-green-700 font-bold text-xs">🏸 กำลังตี</p>
                 </div>
               )}
             </div>
@@ -442,8 +654,8 @@ export function CourtsTab({
 
               {/* Rank Filter Range dropdowns */}
               <div className="space-y-2 bg-on-surface/2 p-3 rounded-2xl border border-on-surface/5">
-                <p className="text-[10px] font-black uppercase text-on-surface/30 tracking-widest flex items-center gap-1.5 px-1">
-                  <Bolt size={10} className="text-secondary" />
+                <p className="text-xs font-semibold text-on-surface/45 flex items-center gap-1.5 px-1">
+                  <Bolt size={11} className="text-secondary" />
                   ช่วงระดับฝีมือที่ต้องการ
                 </p>
                 <div className="flex items-center gap-2">
@@ -537,7 +749,7 @@ export function CourtsTab({
                     <button onClick={() => addShuttle(-1)} disabled={selected.shuttlecocks <= 0}
                       className="w-9 h-9 bg-white/10 text-white rounded-xl font-black text-lg flex items-center justify-center hover:bg-white/20 transition-colors disabled:opacity-20">-</button>
                     <div className="text-center px-1">
-                      <p className="text-white/40 text-[8px] font-black uppercase leading-none mb-1">จำนวนลูก</p>
+                      <p className="text-white/45 text-xs font-semibold leading-none mb-1">จำนวนลูก</p>
                       <p className="text-white font-headline font-black text-2xl leading-none">{selected.shuttlecocks}</p>
                     </div>
                     <button onClick={() => addShuttle(1)}
@@ -546,31 +758,31 @@ export function CourtsTab({
 
                   {/* Cost preview */}
                   <div className="bg-white/5 border border-white/10 rounded-2xl px-4 py-2.5 text-center">
-                    <p className="text-white/40 text-[10px] font-black uppercase">ค่าลูก/คน</p>
+                    <p className="text-white/45 text-xs font-semibold">ค่าลูก/คน</p>
                     <p className="text-white font-headline font-black text-lg">฿{(selected.shuttlecocks * 25).toFixed(0)}</p>
                   </div>
 
                   {isActive ? (
                     <button onClick={() => onResetCourt(selected.id)}
-                      className="flex items-center gap-2 bg-red-500 text-white px-5 py-2.5 rounded-xl font-black uppercase text-sm tracking-widest shadow-lg hover:bg-red-400 hover:scale-105 transition-all">
-                      <Check size={16} />จบเกม
+                      className="flex items-center gap-2 bg-red-500 text-white px-5 py-2.5 rounded-xl font-bold text-sm shadow-lg hover:bg-red-400 hover:scale-105 transition-all">
+                      <Check size={16} /> จบเกม
                     </button>
                   ) : (
                     <>
                       <button onClick={() => onAutoMatch(selected.id)}
-                        className="bg-white/10 border border-white/20 text-white px-4 py-2.5 rounded-xl font-black uppercase text-xs tracking-widest hover:bg-white/20 transition flex items-center gap-2">
-                        <Bolt size={13} fill="currentColor" />Auto-Fill
+                        className="bg-white/10 border border-white/20 text-white px-4 py-2.5 rounded-xl font-bold text-sm hover:bg-white/20 transition flex items-center gap-2">
+                        <Bolt size={14} fill="currentColor" /> จัดอัตโนมัติ
                       </button>
                       <button
                         onClick={() => onStartGame(selected.id)}
                         disabled={filledCount !== 4}
                         className={cn(
-                          'flex items-center gap-2 px-6 py-2.5 rounded-xl font-black uppercase text-sm tracking-widest shadow-lg transition-all',
+                          'flex items-center gap-2 px-6 py-2.5 rounded-xl font-bold text-sm shadow-lg transition-all',
                           filledCount === 4
                             ? 'bg-green-400 text-green-900 hover:bg-green-300 hover:scale-105'
                             : 'bg-white/10 text-white/30 cursor-not-allowed border border-white/10'
                         )}>
-                        ▶ เริ่ม {filledCount !== 4 && `(${filledCount}/4)`}
+                        ▶ เริ่มเกม {filledCount !== 4 && `(${filledCount}/4)`}
                       </button>
                       <button onClick={() => onDeleteCourt(selected.id)}
                         className="text-white/30 hover:text-red-400 p-2.5 rounded-xl hover:bg-red-400/10 transition-all">
@@ -602,7 +814,7 @@ export function CourtsTab({
                     {/* Net */}
                     <div className="absolute left-0 right-0" style={{ top: '50%', transform: 'translateY(-50%)' }}>
                       <div className="w-full h-1.5 bg-white/30 relative">
-                        <div className="absolute left-1/2 -top-4 -translate-x-1/2 bg-white/90 text-green-900 text-[10px] font-black px-3 py-1 rounded-full uppercase tracking-widest">NET</div>
+                        <div className="absolute left-1/2 -top-4 -translate-x-1/2 bg-white/90 text-green-900 text-xs font-bold px-3 py-1 rounded-full">NET</div>
                       </div>
                     </div>
                   </div>
@@ -649,7 +861,7 @@ export function CourtsTab({
                   <div className="flex items-center gap-2">
                     <h3 className="font-headline font-black text-white text-base">เกมที่ผ่านมา</h3>
                     <span className="text-xs font-black bg-white/10 text-white/60 px-2 py-0.5 rounded-full">{courtGames.length} เกม</span>
-                    <span className="text-[10px] text-white/30 font-bold">กด +/− เพื่อแก้จำนวนลูก</span>
+                    <span className="text-xs text-white/35 font-semibold">กด +/− เพื่อแก้จำนวนลูก</span>
                   </div>
                   <div className="space-y-2">
                     {courtGames.map(game => (
@@ -660,6 +872,122 @@ export function CourtsTab({
               )}
             </div>
           </section>
+
+          {/* ── Court Queue Panel ─────────────────────────────────────────── */}
+          {selected && (() => {
+            const slots = courtQueues[selected.id] || [];
+            return (
+              <section className="xl:col-span-12">
+                <div className="bg-white rounded-[2rem] shadow-sm border border-on-surface/5 overflow-hidden">
+                  <div className="flex items-center justify-between px-6 py-4 border-b border-on-surface/5">
+                    <div className="flex items-center gap-3">
+                      <div className="w-9 h-9 bg-primary/10 rounded-xl flex items-center justify-center">
+                        <span className="text-lg">⏭</span>
+                      </div>
+                      <div>
+                        <h3 className="font-bold text-base text-on-surface">คิวตีต่อไป</h3>
+                        <p className="text-xs text-on-surface/40 font-semibold">{selected.name}</p>
+                      </div>
+                      {slots.length > 0 && (
+                        <span className="bg-primary/10 text-primary text-sm px-2.5 py-0.5 rounded-full font-bold">{slots.length}</span>
+                      )}
+                    </div>
+                    <button
+                      onClick={() => setEditingSlot({ courtId: selected.id })}
+                      className="flex items-center gap-2 bg-primary text-white px-4 py-2 rounded-xl font-bold text-sm shadow-sm shadow-primary/20 hover:scale-105 active:scale-95 transition-all"
+                    >
+                      <Plus size={15} /> เพิ่มคิว
+                    </button>
+                  </div>
+
+                  {slots.length === 0 ? (
+                    <div className="px-6 py-10 text-center">
+                      <p className="text-on-surface/25 font-semibold text-sm">ยังไม่มีคิวตี — กด "เพิ่มคิว" เพื่อจัดล่วงหน้า</p>
+                    </div>
+                  ) : (
+                    <div className="divide-y divide-on-surface/5">
+                      {slots.map((slot, idx) => {
+                        const allPlayers = [...slot.teamA, ...slot.teamB];
+                        return (
+                          <div key={slot.id} className="px-6 py-4 flex items-center gap-4">
+                            {/* Number */}
+                            <div className={cn(
+                              'w-8 h-8 rounded-xl flex items-center justify-center font-black text-sm shrink-0',
+                              idx === 0 ? 'bg-primary text-white' : 'bg-on-surface/5 text-on-surface/40'
+                            )}>
+                              {idx + 1}
+                            </div>
+
+                            {/* Players */}
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 flex-wrap">
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  {slot.teamA.map((p, i) => (
+                                    <div key={i} className={cn('flex items-center gap-1 px-2 py-1 rounded-lg text-sm font-bold', RANK_COLORS[p.rank])}>
+                                      <span className="text-xs font-bold opacity-70">{p.rank}</span>
+                                      <span>{p.name}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                                {slot.teamA.length > 0 && slot.teamB.length > 0 && (
+                                  <span className="text-on-surface/25 font-black text-xs">VS</span>
+                                )}
+                                <div className="flex items-center gap-1.5 flex-wrap">
+                                  {slot.teamB.map((p, i) => (
+                                    <div key={i} className={cn('flex items-center gap-1 px-2 py-1 rounded-lg text-sm font-bold', RANK_COLORS[p.rank])}>
+                                      <span className="text-xs font-bold opacity-70">{p.rank}</span>
+                                      <span>{p.name}</span>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                              {slot.note && (
+                                <p className="text-xs text-on-surface/40 font-semibold mt-1">{slot.note}</p>
+                              )}
+                            </div>
+
+                            {/* Actions */}
+                            <div className="flex items-center gap-1 shrink-0">
+                              <button
+                                onClick={() => onMoveCourtQueue(selected.id, slot.id, 'up')}
+                                disabled={idx === 0}
+                                className="p-1.5 rounded-lg text-on-surface/20 hover:text-primary hover:bg-primary/5 disabled:opacity-20 disabled:cursor-not-allowed transition-all"
+                                title="เลื่อนขึ้น"
+                              >
+                                <ChevronDown size={16} className="rotate-180" />
+                              </button>
+                              <button
+                                onClick={() => onMoveCourtQueue(selected.id, slot.id, 'down')}
+                                disabled={idx === slots.length - 1}
+                                className="p-1.5 rounded-lg text-on-surface/20 hover:text-primary hover:bg-primary/5 disabled:opacity-20 disabled:cursor-not-allowed transition-all"
+                                title="เลื่อนลง"
+                              >
+                                <ChevronDown size={16} />
+                              </button>
+                              <button
+                                onClick={() => setEditingSlot({ courtId: selected.id, slot })}
+                                className="p-1.5 rounded-lg text-on-surface/20 hover:text-primary hover:bg-primary/5 transition-all"
+                                title="แก้ไข"
+                              >
+                                <RotateCcw size={15} />
+                              </button>
+                              <button
+                                onClick={() => onRemoveCourtQueue(selected.id, slot.id)}
+                                className="p-1.5 rounded-lg text-on-surface/20 hover:text-error hover:bg-error/5 transition-all"
+                                title="ลบ"
+                              >
+                                <Trash2 size={15} />
+                              </button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </section>
+            );
+          })()}
         </div>
       ) : (
         <div className="text-center py-24 bg-white/60 rounded-3xl border-2 border-dashed border-on-surface/10">

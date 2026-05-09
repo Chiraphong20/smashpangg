@@ -118,7 +118,7 @@ export function POSModal({ member, snacks, onAddSnack, onClose }: Props) {
               </div>
               <div>
                 <h2 className="font-headline font-black text-2xl text-on-surface">เลือกสินค้า</h2>
-                <p className="text-[10px] font-black uppercase text-on-surface/40 tracking-widest">Product Selection</p>
+                <p className="text-xs font-semibold text-on-surface/45">เลือกรายการสินค้า</p>
               </div>
             </div>
             

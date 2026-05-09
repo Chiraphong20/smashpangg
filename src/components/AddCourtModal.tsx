@@ -39,7 +39,7 @@ export function AddCourtModal({ open, onClose, onAdd }: Props) {
 
             <form className="space-y-6" onSubmit={handleSubmit}>
               <div className="space-y-2">
-                <label className="text-[10px] font-black uppercase tracking-widest text-on-surface/40 ml-2">ชื่อคอร์ด</label>
+                <label className="text-xs font-bold text-on-surface/50 ml-2">ชื่อคอร์ด</label>
                 <input
                   autoFocus required
                   value={name}

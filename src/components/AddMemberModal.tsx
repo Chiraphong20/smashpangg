@@ -45,7 +45,7 @@ export function AddMemberModal({ open, onClose, onAdd, existingNames, rankMemory
 
             <form className="space-y-6" onSubmit={handleSubmit}>
               <div className="space-y-2">
-                <label className="text-[10px] font-black uppercase tracking-widest text-on-surface/40 ml-2">ชื่อผู้เล่น</label>
+                <label className="text-xs font-bold text-on-surface/50 ml-2">ชื่อผู้เล่น</label>
                 <input
                   autoFocus required
                   value={name}
@@ -68,7 +68,7 @@ export function AddMemberModal({ open, onClose, onAdd, existingNames, rankMemory
               </div>
 
               <div className="space-y-3">
-                <label className="text-[10px] font-black uppercase tracking-widest text-on-surface/40 ml-2">ระดับมือ</label>
+                <label className="text-xs font-bold text-on-surface/50 ml-2">ระดับมือ</label>
                 <div className="grid grid-cols-5 gap-1.5">
                   {RANKS.map(r => (
                     <label key={r} className="relative cursor-pointer">

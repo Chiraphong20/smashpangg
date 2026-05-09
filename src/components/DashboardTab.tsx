@@ -109,11 +109,11 @@ function CheckoutModal({ member, gameHistory, otherMembers, paymentHistory = [],
             <div className="flex items-center gap-2">
               {RANK_LEVEL_LABELS[member.rank] && (
                 <>
-                  <span className="text-[10px] font-black uppercase tracking-widest text-primary px-2 py-0.5 bg-primary/5 rounded-full">{RANK_LEVEL_LABELS[member.rank]}</span>
+                  <span className="text-xs font-semibold text-primary px-2 py-0.5 bg-primary/5 rounded-full">{RANK_LEVEL_LABELS[member.rank]}</span>
                   <span className="text-on-surface/20">•</span>
                 </>
               )}
-              <span className="text-[10px] font-black uppercase tracking-widest text-on-surface/40">{member.gamesPlayed} เกมส์</span>
+              <span className="text-xs font-semibold text-on-surface/45">{member.gamesPlayed} เกมส์</span>
             </div>
           </div>
           <button onClick={onClose} className="p-2.5 rounded-full hover:bg-background shrink-0 text-on-surface/20 hover:text-on-surface transition-colors"><X size={24} /></button>
@@ -122,11 +122,11 @@ function CheckoutModal({ member, gameHistory, otherMembers, paymentHistory = [],
         {/* Cost summary cards */}
         <div className="grid grid-cols-2 gap-3 mb-6">
           <div className="bg-primary/5 rounded-[1.5rem] p-4 text-center border border-primary/5">
-            <p className="text-[9px] font-black uppercase text-primary/40 tracking-widest mb-1">ยอดรวม (ค่ากิจกรรม / ค่าลูก)</p>
+            <p className="text-xs font-semibold text-primary/50 mb-1">ยอดรวม (ค่ากิจกรรม / ค่าลูก)</p>
             <p className="font-headline font-black text-2xl text-primary">฿{((member.totalCourt ?? member.courtBalance) + (member.totalShuttle ?? member.shuttleBalance)).toFixed(0)}</p>
           </div>
           <div className="bg-tertiary/5 rounded-[1.5rem] p-4 text-center border border-tertiary/5 shadow-inner">
-            <p className="text-[9px] font-black uppercase text-tertiary/40 tracking-widest mb-1">สินค้า</p>
+            <p className="text-xs font-semibold text-tertiary/50 mb-1">สินค้า</p>
             <p className="font-headline font-black text-2xl text-tertiary">฿{(member.totalSnack || member.snackBalance || paidSnackHistory.reduce((a,s)=>a+s.price,0)).toFixed(0)}</p>
           </div>
         </div>
@@ -135,9 +135,9 @@ function CheckoutModal({ member, gameHistory, otherMembers, paymentHistory = [],
           {/* Detailed Snack List — แสดงจาก payment record ถ้าจ่ายแล้ว */}
           {displaySnackHistory.length > 0 && (
             <div className="space-y-3">
-              <h3 className="font-black text-[10px] text-on-surface/30 uppercase tracking-widest flex items-center gap-2">
-                <ShoppingCart size={12} /> รายละเอียดน้ำ/ขนม
-                {isPaid && <span className="text-green-500 normal-case font-bold text-[9px] bg-green-500/10 px-2 py-0.5 rounded-full">บันทึกจากการชำระเงิน</span>}
+              <h3 className="font-bold text-xs text-on-surface/40 flex items-center gap-2">
+                <ShoppingCart size={13} /> รายละเอียดน้ำ/ขนม
+                {isPaid && <span className="text-green-600 normal-case font-semibold text-xs bg-green-500/10 px-2 py-0.5 rounded-full">บันทึกจากการชำระเงิน</span>}
               </h3>
               <div className="bg-background rounded-3xl p-4 space-y-2.5">
                 {displaySnackHistory.map((s, idx) => (
@@ -198,8 +198,8 @@ function CheckoutModal({ member, gameHistory, otherMembers, paymentHistory = [],
 
           {/* Detailed Game History with Partners */}
           <div className="space-y-3">
-            <h3 className="font-black text-[10px] text-on-surface/30 uppercase tracking-widest flex items-center gap-2">
-              <Trophy size={12} /> รายละเอียดการตี
+            <h3 className="font-bold text-xs text-on-surface/40 flex items-center gap-2">
+              <Trophy size={13} /> รายละเอียดการตี
             </h3>
             {myGames.length === 0 ? (
               <p className="text-center py-6 text-on-surface/20 text-xs font-bold italic">ไม่มีประวัติการตีในรอบนี้</p>
@@ -211,22 +211,22 @@ function CheckoutModal({ member, gameHistory, otherMembers, paymentHistory = [],
                     <div key={g.id} className="bg-background rounded-3xl p-5 border border-on-surface/5 hover:border-primary/20 transition-all group/game">
                       <div className="flex items-center justify-between mb-3">
                         <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 rounded-xl bg-primary/10 flex items-center justify-center text-[10px] font-black text-primary">
+                          <div className="w-8 h-8 rounded-xl bg-primary/10 flex items-center justify-center text-xs font-bold text-primary">
                             {myGames.length - idx}
                           </div>
                           <div>
                             <p className="text-sm font-black text-on-surface/80">{g.courtName}</p>
-                            <p className="text-[10px] text-on-surface/40 font-bold">{format(g.playedAt, 'HH:mm น.')}</p>
+                            <p className="text-xs text-on-surface/45 font-semibold">{format(g.playedAt, 'HH:mm น.')}</p>
                           </div>
                         </div>
                         <div className="text-right">
-                          <p className="text-[10px] text-on-surface/40 font-bold mb-0.5">ใช้ {g.shuttlesUsed} ลูก</p>
+                          <p className="text-xs text-on-surface/45 font-semibold mb-0.5">ใช้ {g.shuttlesUsed} ลูก</p>
                           <p className="text-sm font-black text-primary">฿{(g.shuttleCostPerPerson + (g.courtFeePerPerson || 0)).toFixed(0)}</p>
                         </div>
                       </div>
                       <div className="flex flex-wrap gap-1.5">
                         {partners.map(p => (
-                          <span key={p.id} className="inline-flex items-center gap-1.5 px-2 py-0.5 bg-white border border-on-surface/5 rounded-lg text-[10px] font-bold text-on-surface/60">
+                          <span key={p.id} className="inline-flex items-center gap-1.5 px-2 py-1 bg-white border border-on-surface/5 rounded-lg text-xs font-semibold text-on-surface/60">
                             <span className={cn("w-1.5 h-1.5 rounded-full shrink-0", RANK_COLORS[p.rank])} />
                             {p.name}
                           </span>
@@ -243,7 +243,7 @@ function CheckoutModal({ member, gameHistory, otherMembers, paymentHistory = [],
         {/* Bulk Payment Details label */}
         {!isReadOnly && selectedOthers.length > 0 && (
           <div className="mt-4 px-5 py-4 bg-primary/5 rounded-3xl border border-primary/10">
-            <h4 className="text-[10px] font-black uppercase text-primary/60 tracking-widest mb-3">รายชื่อคนอื่นๆ ที่จ่ายร่วมกัน</h4>
+            <h4 className="text-xs font-bold text-primary/60 mb-3">รายชื่อคนอื่นๆ ที่จ่ายร่วมกัน</h4>
             <div className="grid grid-cols-2 gap-x-6 gap-y-2">
               {otherMembers.filter(m => selectedOthers.includes(m.id)).map(m => (
                 <div key={m.id} className="flex items-center justify-between text-xs font-bold">
@@ -259,7 +259,7 @@ function CheckoutModal({ member, gameHistory, otherMembers, paymentHistory = [],
         <div className="mt-8 pt-6 border-t border-on-surface/5 flex flex-col gap-4">
           <div className="flex items-center justify-between gap-6">
             <div className="flex-1">
-              <p className="text-[10px] font-black uppercase text-on-surface/30 tracking-widest mb-1">ยอดเงินที่รับมาจริง</p>
+              <p className="text-xs font-bold text-on-surface/40 mb-1">ยอดเงินที่รับมาจริง</p>
               <div className="flex items-baseline gap-1 group">
                 <span className="font-black text-2xl text-error/40 group-focus-within:text-error transition-colors">฿</span>
                 <input
@@ -275,7 +275,7 @@ function CheckoutModal({ member, gameHistory, otherMembers, paymentHistory = [],
                 />
               </div>
               {manualAmount !== null && manualAmount !== totalBalance && manualAmount >= 0 && (
-                <p className="text-[9px] font-bold text-primary uppercase mt-1 italic">* ปรับยอดจากเดิม ฿{totalBalance.toFixed(0)}</p>
+                <p className="text-xs font-semibold text-primary mt-1 italic">* ปรับยอดจากเดิม ฿{totalBalance.toFixed(0)}</p>
               )}
             </div>
             {!isReadOnly && member.status !== 'paid' && displayAmount >= 0 && (
@@ -301,7 +301,7 @@ function CheckoutModal({ member, gameHistory, otherMembers, paymentHistory = [],
                         onClose();
                       }
                     }}
-                    className="text-[10px] font-black text-on-surface/40 hover:text-error transition-colors uppercase tracking-widest text-center"
+                    className="text-xs font-bold text-on-surface/40 hover:text-error transition-colors text-center"
                   >
                     เปิดยอดใหม่ / ยกเลิกการจ่าย
                   </button>
@@ -314,7 +314,7 @@ function CheckoutModal({ member, gameHistory, otherMembers, paymentHistory = [],
           {!isReadOnly && displayAmount < 0 && (
             <div className="bg-red-500/10 border border-red-500/20 p-4 rounded-2xl flex items-center gap-3">
               <X className="text-red-500 shrink-0" size={18} />
-              <p className="text-[10px] font-bold text-red-600 leading-relaxed uppercase tracking-widest">
+              <p className="text-xs font-semibold text-red-600 leading-relaxed">
                 หากต้องการลดค่าน้ำ ให้กดไอคอนถังขยะ <Trash2 size={10} className="inline mx-0.5" /> ด้านบนแทนการใส่เลขติดลบที่นี่ครับ
               </p>
             </div>
@@ -471,8 +471,8 @@ export function DashboardTab({
                 {isReadOnly ? "ประวัติย้อนหลัง" : "Live Monitor"}
               </h2>
             </div>
-            <p className="text-[9px] font-bold text-on-surface/40 uppercase tracking-widest flex items-center gap-2">
-              <span className={cn("w-2 h-2 rounded-full animate-pulse", isReadOnly ? "bg-primary" : "bg-green-500")} />
+            <p className="text-xs font-semibold text-on-surface/50 flex items-center gap-2 mt-0.5">
+              <span className={cn("w-2 h-2 rounded-full animate-pulse shrink-0", isReadOnly ? "bg-primary" : "bg-green-500")} />
               {isReadOnly
                 ? `ข้อมูลสรุปของ ${format(viewingSession!.date, 'd MMMM yyyy', { locale: th })}`
                 : sessionStartDate
@@ -514,30 +514,30 @@ export function DashboardTab({
                   }
                 }
               }}
-              className="bg-white pl-10 pr-4 py-2.5 rounded-2xl font-black text-[10px] uppercase tracking-widest text-on-surface/60 outline-none border border-on-surface/5 focus:border-primary/20 appearance-none transition-all cursor-pointer min-w-[200px]"
+              className="bg-white pl-10 pr-4 py-2.5 rounded-2xl font-semibold text-sm text-on-surface/60 outline-none border border-on-surface/5 focus:border-primary/20 appearance-none transition-all cursor-pointer min-w-[200px]"
             />
           </div>
 
           {isReadOnly ? (
             <button
               onClick={onCloseSession}
-              className="px-6 py-2.5 bg-primary text-white rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-lg shadow-primary/20 hover:scale-105 active:scale-95 transition-all flex items-center gap-2"
+              className="px-5 py-2.5 bg-primary text-white rounded-2xl font-bold text-sm shadow-lg shadow-primary/20 hover:scale-105 active:scale-95 transition-all flex items-center gap-2"
             >
-              <Monitor size={14} /> ดูวันนี้
+              <Monitor size={15} /> ดูวันนี้
             </button>
           ) : (
-            <div className="flex gap-1.5">
+            <div className="flex gap-2">
               <button
                 onClick={onClearBoard}
-                className="px-6 py-2.5 bg-background text-on-surface/40 rounded-2xl font-black text-[10px] uppercase tracking-widest border border-on-surface/10 hover:bg-on-surface/5 active:scale-95 transition-all flex items-center gap-2"
+                className="px-5 py-2.5 bg-background text-on-surface/50 rounded-2xl font-bold text-sm border border-on-surface/10 hover:bg-on-surface/5 active:scale-95 transition-all flex items-center gap-2"
               >
-                <Trash2 size={14} /> ล้างกระดาน
+                <Trash2 size={15} /> ล้างกระดาน
               </button>
               <button
                 onClick={onResetDay}
-                className="px-6 py-2.5 bg-error text-white rounded-2xl font-black text-[10px] uppercase tracking-widest shadow-lg shadow-error/20 hover:scale-105 active:scale-95 transition-all flex items-center gap-2"
+                className="px-5 py-2.5 bg-error text-white rounded-2xl font-bold text-sm shadow-lg shadow-error/20 hover:scale-105 active:scale-95 transition-all flex items-center gap-2"
               >
-                <RefreshCw size={14} /> จบวันและสรุปยอด
+                <RefreshCw size={15} /> จบวันและสรุปยอด
               </button>
             </div>
           )}
@@ -565,7 +565,7 @@ export function DashboardTab({
               <s.icon size={22} className={s.color} />
             </div>
             <p className="text-3xl font-headline font-black">{s.value}</p>
-            <p className="text-[10px] font-bold text-on-surface/40 uppercase tracking-widest mt-0.5">{s.label}</p>
+            <p className="text-xs font-semibold text-on-surface/50 mt-1 leading-tight">{s.label}</p>
           </div>
         ))}
       </div>
@@ -579,12 +579,12 @@ export function DashboardTab({
             {isSyncing && (
               <div className="flex items-center gap-1.5 px-2 py-1 bg-primary/5 rounded-lg">
                 <div className="w-1.5 h-1.5 bg-primary rounded-full animate-ping" />
-                <span className="text-[8px] font-black uppercase tracking-tighter text-primary">Cloud Saving...</span>
+                <span className="text-xs font-semibold text-primary">กำลังบันทึก...</span>
               </div>
             )}
             <button
               onClick={onImportLine}
-              className="flex items-center gap-2 bg-primary text-white px-4 py-2 rounded-xl font-black text-[10px] uppercase tracking-widest shadow-lg shadow-primary/20 hover:scale-105 active:scale-95 transition-all"
+              className="flex items-center gap-2 bg-primary text-white px-4 py-2 rounded-xl font-bold text-sm shadow-lg shadow-primary/20 hover:scale-105 active:scale-95 transition-all"
             >
               <FileText size={14} /> ลงชื่อวันนี้ (ก๊อปรายชื่อไลน์)
             </button>
@@ -597,7 +597,7 @@ export function DashboardTab({
                 placeholder="ค้นหา..."
                 value={dbSearch}
                 onChange={e => setDbSearch(e.target.value)}
-                className="w-full pl-9 pr-4 py-2 bg-background border-none rounded-xl text-[10px] font-black focus:ring-2 focus:ring-primary/20 outline-none shadow-sm transition-all"
+                className="w-full pl-9 pr-4 py-2 bg-background border-none rounded-xl text-sm font-semibold focus:ring-2 focus:ring-primary/20 outline-none shadow-sm transition-all"
               />
             </div>
             <div className="flex items-center gap-2">
@@ -610,7 +610,7 @@ export function DashboardTab({
                   key={tab.id}
                   onClick={() => setStatusFilter(tab.id as any)}
                   className={cn(
-                    "px-4 py-1.5 rounded-lg font-black text-[10px] uppercase tracking-widest transition-all whitespace-nowrap",
+                    "px-4 py-1.5 rounded-lg font-semibold text-sm transition-all whitespace-nowrap",
                     statusFilter === tab.id 
                       ? "bg-primary text-white shadow-sm" 
                       : "bg-background text-on-surface/40 hover:bg-on-surface/5"
@@ -624,7 +624,7 @@ export function DashboardTab({
         </div>
 
         {/* Table header */}
-        <div className="grid grid-cols-12 gap-2 px-6 py-3 bg-background text-[10px] font-black uppercase tracking-widest text-on-surface/40 border-b border-on-surface/5">
+        <div className="grid grid-cols-12 gap-2 px-6 py-3 bg-background text-xs font-bold uppercase tracking-wider text-on-surface/45 border-b border-on-surface/5">
           <div className="col-span-3 flex items-center gap-3">
             {!isReadOnly && (
               <input
@@ -740,13 +740,13 @@ export function DashboardTab({
                         {m.name}
                       </p>
                       {m.paidByName && (
-                        <p className="text-[8px] font-black text-green-600 uppercase tracking-tight flex items-center gap-1">
-                          <Check size={8} /> จ่ายโดย {m.paidByName}
+                        <p className="text-xs font-semibold text-green-600 flex items-center gap-1">
+                          <Check size={9} /> จ่ายโดย {m.paidByName}
                         </p>
                       )}
                     </div>
                     <div className="flex items-center gap-2">
-                      <span className={cn('text-[9px] font-black px-1.5 py-0.5 rounded-full transition-all',
+                      <span className={cn('text-[11px] font-bold px-2 py-0.5 rounded-full transition-all',
                         isSettled ? 'bg-green-500 text-white' :
                           m.status === 'playing' ? 'bg-green-100 text-green-700' :
                             m.status === 'waiting' ? 'bg-secondary/10 text-secondary' : 'bg-on-surface/5 text-on-surface/30')}>
@@ -755,9 +755,9 @@ export function DashboardTab({
                       {(m.status === 'resting' || isSettled) && !isReadOnly && (
                         <button
                           onClick={(e) => { e.stopPropagation(); onCheckIn(m.id); }}
-                          className="text-[9px] font-black bg-primary text-white px-2 py-0.5 rounded-full hover:scale-105 active:scale-95 transition-transform flex items-center gap-1"
+                          className="text-[11px] font-bold bg-primary text-white px-2.5 py-0.5 rounded-full hover:scale-105 active:scale-95 transition-transform flex items-center gap-1"
                         >
-                          <UserPlus size={8} strokeWidth={4} /> {isSettled ? 'กลับมาตีใหม่' : 'เช็คอิน'}
+                          <UserPlus size={10} strokeWidth={3} /> {isSettled ? 'กลับมาตีใหม่' : 'เช็คอิน'}
                         </button>
                       )}
                     </div>
@@ -835,12 +835,12 @@ export function DashboardTab({
                       </span>
                     </div>
                     {isSettled && (
-                      <span className="text-[9px] font-black text-green-500 uppercase tracking-widest flex items-center gap-1">
-                        <CheckCircle2 size={10} strokeWidth={3} /> ชำระแล้ว
+                      <span className="text-[11px] font-bold text-green-500 flex items-center gap-1">
+                        <CheckCircle2 size={11} strokeWidth={3} /> ชำระแล้ว
                       </span>
                     )}
                     {!isSettled && m.balance > 0 && (
-                      <span className="text-[9px] font-black text-error uppercase tracking-widest">
+                      <span className="text-[11px] font-bold text-error">
                         ค้างชำระ
                       </span>
                     )}

@@ -1,16 +1,15 @@
-import React from 'react';
-import { 
-  Settings, 
-  History, 
-  RefreshCw, 
-  TrendingUp, 
-  Cloud, 
-  Upload, 
-  Download, 
-  Plus, 
-  Trash2 
+import React, { useState } from 'react';
+import {
+  Settings,
+  RefreshCw,
+  TrendingUp,
+  Plus,
+  Trash2,
+  QrCode,
+  Copy,
+  Check,
+  Download,
 } from 'lucide-react';
-import { cn } from '../lib/utils';
 import { Rank } from '../types';
 
 interface Props {
@@ -30,6 +29,27 @@ export function SettingsTab({
   onSeedMockHistory, onResetDay, onFactoryReset,
   rankMemory
 }: Props) {
+  const [copied, setCopied] = useState(false);
+  const queueUrl = `${window.location.origin}${window.location.pathname}?queue`;
+  const qrSrc = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&margin=10&data=${encodeURIComponent(queueUrl)}`;
+
+  const copyUrl = () => {
+    navigator.clipboard.writeText(queueUrl);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  const downloadQr = async () => {
+    const res = await fetch(qrSrc);
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'queue-qrcode.png';
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div className="space-y-8 max-w-4xl mx-auto pb-20">
       <div className="flex items-center gap-4 mb-8">
@@ -53,7 +73,7 @@ export function SettingsTab({
           </h3>
           <div className="space-y-6">
             <div className="space-y-3">
-              <label className="text-[10px] font-black uppercase tracking-widest text-on-surface/30 ml-2">ค่าสนามต่อคน (฿)</label>
+              <label className="text-xs font-bold text-on-surface/40 ml-2">ค่าสนามต่อคน (฿)</label>
               <input 
                 type="number" 
                 value={courtFeePerPerson} 
@@ -62,7 +82,7 @@ export function SettingsTab({
               />
             </div>
             <div className="space-y-3">
-              <label className="text-[10px] font-black uppercase tracking-widest text-on-surface/30 ml-2">ราคาลูกแบด (฿)</label>
+              <label className="text-xs font-bold text-on-surface/40 ml-2">ราคาลูกแบด (฿)</label>
               <input 
                 type="number" 
                 value={shuttlePrice} 
@@ -82,7 +102,7 @@ export function SettingsTab({
             className="flex items-center justify-between p-6 bg-secondary/5 hover:bg-secondary/10 rounded-3xl transition-all group border-none">
             <div className="text-left">
               <p className="text-sm font-black text-secondary uppercase leading-tight">Mock Data</p>
-              <p className="text-[9px] text-on-surface/40 font-bold italic">สร้างข้อมูลจำลอง</p>
+              <p className="text-xs text-on-surface/45 font-semibold">สร้างข้อมูลจำลอง</p>
             </div>
             <Plus size={20} className="text-secondary group-hover:scale-125 transition-all" />
           </button>
@@ -90,7 +110,7 @@ export function SettingsTab({
             className="flex items-center justify-between p-6 bg-error/5 hover:bg-error/10 rounded-3xl transition-all group border-none">
             <div className="text-left">
               <p className="text-sm font-black text-error uppercase leading-tight">Reset Day</p>
-              <p className="text-[9px] text-on-surface/40 font-bold italic">เริ่มวันใหม่/ล้างกระดาน</p>
+              <p className="text-xs text-on-surface/45 font-semibold">เริ่มวันใหม่/ล้างกระดาน</p>
             </div>
             <RefreshCw size={20} className="text-error group-hover:rotate-180 transition-all duration-500" />
           </button>
@@ -98,10 +118,74 @@ export function SettingsTab({
             className="flex items-center justify-between p-6 bg-error/5 hover:bg-error/10 rounded-3xl transition-all group border-none">
             <div className="text-left">
               <p className="text-sm font-black text-error uppercase leading-tight">Factory Reset</p>
-              <p className="text-[9px] text-on-surface/40 font-bold italic">ลบข้อมูลทั้งหมดถาวร</p>
+              <p className="text-xs text-on-surface/45 font-semibold">ลบข้อมูลทั้งหมดถาวร</p>
             </div>
             <Trash2 size={20} className="text-error group-hover:scale-125 transition-all" />
           </button>
+        </div>
+      </section>
+
+      {/* QR Code Section */}
+      <section className="bg-white rounded-[2.5rem] p-8 shadow-sm border border-on-surface/5">
+        <div className="flex items-center gap-3 mb-6">
+          <div className="w-10 h-10 bg-secondary/10 rounded-2xl flex items-center justify-center">
+            <QrCode size={20} className="text-secondary" />
+          </div>
+          <div>
+            <h3 className="font-bold text-base text-on-surface">QR Code — หน้าคิวสำหรับลูกค้า</h3>
+            <p className="text-xs text-on-surface/45 font-semibold">ลูกค้าสแกนเพื่อดูคิวรอและสนามที่กำลังตีอยู่</p>
+          </div>
+        </div>
+
+        <div className="flex flex-col sm:flex-row items-center gap-8">
+          <div className="flex flex-col items-center gap-3 shrink-0">
+            <div className="bg-white p-3 rounded-2xl border-2 border-on-surface/5 shadow-sm">
+              <img
+                src={qrSrc}
+                alt="Queue QR Code"
+                width={180}
+                height={180}
+                className="rounded-xl"
+              />
+            </div>
+            <button
+              onClick={downloadQr}
+              className="flex items-center gap-2 bg-on-surface/5 hover:bg-on-surface/10 text-on-surface/60 px-5 py-2 rounded-xl text-sm font-bold transition-all hover:scale-105 active:scale-95 w-full justify-center"
+            >
+              <Download size={15} /> ดาวน์โหลด QR
+            </button>
+          </div>
+
+          <div className="flex-1 space-y-4">
+            <div>
+              <p className="text-xs font-bold text-on-surface/40 mb-2">URL หน้าคิว</p>
+              <div className="flex items-center gap-2 bg-background rounded-2xl px-4 py-3">
+                <p className="text-sm font-semibold text-on-surface/70 flex-1 truncate">{queueUrl}</p>
+                <button
+                  onClick={copyUrl}
+                  className="flex items-center gap-1.5 bg-primary text-white px-3 py-1.5 rounded-xl text-xs font-bold shrink-0 hover:scale-105 active:scale-95 transition-all"
+                >
+                  {copied ? <><Check size={12} /> คัดลอกแล้ว</> : <><Copy size={12} /> คัดลอก</>}
+                </button>
+              </div>
+            </div>
+
+            <div className="space-y-2 text-sm text-on-surface/50">
+              <p className="flex items-center gap-2 font-semibold">✅ แสดงสนามที่กำลังตีอยู่</p>
+              <p className="flex items-center gap-2 font-semibold">✅ แสดงคิวรอตามลำดับ</p>
+              <p className="flex items-center gap-2 font-semibold">✅ อัปเดตอัตโนมัติทุก 20 วินาที</p>
+              <p className="flex items-center gap-2 font-semibold">✅ ไม่ต้องล็อกอิน — ดูได้ทุกคน</p>
+            </div>
+
+            <a
+              href={queueUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-2 bg-secondary/10 text-secondary px-5 py-2.5 rounded-xl font-bold text-sm hover:bg-secondary/20 transition-all"
+            >
+              <QrCode size={16} /> ดูตัวอย่างหน้าคิว →
+            </a>
+          </div>
         </div>
       </section>
     </div>

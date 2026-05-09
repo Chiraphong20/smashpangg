@@ -72,6 +72,19 @@ export interface PaymentRecord {
   };
 }
 
+export interface QueuePlayer {
+  memberId?: string;
+  name: string;
+  rank: Rank;
+}
+
+export interface CourtQueueSlot {
+  id: string;
+  teamA: QueuePlayer[];
+  teamB: QueuePlayer[];
+  note?: string;
+}
+
 export interface SessionRecord {
   id: string;
   date: number;

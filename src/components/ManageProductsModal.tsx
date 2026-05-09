@@ -73,7 +73,7 @@ export function ManageProductsModal({ open, onClose, snacks, onSave }: Props) {
                       setItems(DEFAULT_SNACKS);
                     }
                   }}
-                  className="text-[9px] font-black text-primary uppercase text-left hover:underline tracking-widest mt-1"
+                  className="text-xs font-bold text-primary text-left hover:underline mt-1"
                 >
                   โหลดค่าเริ่มต้นจากโค้ด
                 </button>
