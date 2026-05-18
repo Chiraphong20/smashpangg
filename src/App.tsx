@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { Users, LayoutDashboard, Trophy, Banknote, UserPlus, Search, ShoppingCart, History, FileText, ChevronLeft, ChevronRight, Menu, Settings } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from './lib/utils';
-import { Member, Court, Rank, RANKS, RANK_COLORS, Snack, PaymentRecord, GameRecord, DEFAULT_SNACKS, SessionRecord, CourtQueueSlot, QueuePlayer } from './types';
+import { Member, Court, Rank, RANKS, RANK_COLORS, Snack, PaymentRecord, GameRecord, SessionRecord, CourtQueueSlot, QueuePlayer } from './types';
 import { format } from 'date-fns';
 import confetti from 'canvas-confetti';
 
@@ -46,7 +46,7 @@ const INITIAL_COURTS: Court[] = [
 export default function App() {
   const [members, setMembers] = useState<Member[]>([]);
   const [courts, setCourts] = useState<Court[]>([]);
-  const [snacks, setSnacks] = useState<Snack[]>(DEFAULT_SNACKS);
+  const [snacks, setSnacks] = useState<Snack[]>([]);
   const [paymentHistory, setPaymentHistory] = useState<PaymentRecord[]>([]);
   const [gameHistory, setGameHistory] = useState<GameRecord[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
@@ -111,10 +111,8 @@ export default function App() {
         if (loadedState?.shuttlePrice) setShuttlePrice(loadedState.shuttlePrice);
         if (loadedState?.sessionStartDate) setSessionStartDate(loadedState.sessionStartDate);
         if (loadedState?.courtQueues) setCourtQueues(loadedState.courtQueues);
-        if (loadedState?.snacks && loadedState.snacks.length > 4) {
+        if (loadedState?.snacks) {
           setSnacks(loadedState.snacks);
-        } else {
-          setSnacks(DEFAULT_SNACKS);
         }
 
         // 2) Load and Merge Master <-> State
@@ -486,8 +484,8 @@ export default function App() {
       })
       .sort((a, b) => a.gamesPlayed !== b.gamesPlayed ? a.gamesPlayed - b.gamesPlayed : a.checkInTime - b.checkInTime);
   }, [members, searchQuery, minRankFilter, maxRankFilter]);
-
-  // ── AUTO MATCH (จัดทีมให้สมดุลที่สุดไม่ว่าจะเหลือที่ว่างกี่ที่) ───────────────────────
+  // ── AUTO MATCH ──────────────────────────────────────────────────────────────
+  // กฎ: คนเล่นน้อยลงก่อน | มือเดียวกันได้ ต่างกันได้ไม่เกิน 2 ระดับ | จัดทีมสมดุล
   const autoMatch = (courtId: string) => {
     const court = courts.find(c => c.id === courtId);
     if (!court) return;
@@ -495,51 +493,98 @@ export default function App() {
     const emptySlotIndices = court.players.map((p, i) => p === null ? i : -1).filter(i => i !== -1);
     if (emptySlotIndices.length === 0) { alert('คอร์ดเต็มแล้ว!'); return; }
 
+    const needed = emptySlotIndices.length;
     const waiting = getWaitingList.filter(m => !court.players.includes(m.id));
-    if (waiting.length < emptySlotIndices.length) {
-      alert(`คนในคิวไม่พอ (ต้องการ ${emptySlotIndices.length} คน)`);
+    // getWaitingList เรียงตาม gamesPlayed น้อย→มาก อยู่แล้ว
+
+    if (waiting.length < needed) {
+      alert(`คนในคิวไม่พอ (ต้องการ ${needed} คน มีแค่ ${waiting.length} คน)`);
       return;
     }
 
-    const candidates = waiting.slice(0, emptySlotIndices.length);
     const getW = (pid: string | null) => {
       if (!pid) return 0;
       const m = members.find(x => x.id === pid);
       return m ? (RANK_WEIGHTS[m.rank] || 0) : 0;
     };
 
-    // Helper: Calculate all permutations of an array
-    const getPermutations = (arr: any[]): any[][] => {
-      if (arr.length <= 1) return [arr];
-      return arr.reduce((acc, item, i) => {
-        const remaining = [...arr.slice(0, i), ...arr.slice(i + 1)];
-        const perms = getPermutations(remaining);
-        return [...acc, ...perms.map(p => [item, ...p])];
-      }, [] as any[][]);
-    };
-
-    const allCandidatePerms = getPermutations(candidates.map(c => c.id));
-    let bestPlayers: (string | null)[] = [...court.players];
-    let minDiff = Infinity;
-
-    // ทดสอบการวาง candidates ลงในช่องว่างทุกแบบที่เป็นไปได้
-    for (const perm of allCandidatePerms) {
-      const testPlayers = [...court.players];
-      emptySlotIndices.forEach((idx, i) => { testPlayers[idx] = perm[i]; });
-
-      const teamAWeight = getW(testPlayers[0]) + getW(testPlayers[1]);
-      const teamBWeight = getW(testPlayers[2]) + getW(testPlayers[3]);
-      const diff = Math.abs(teamAWeight - teamBWeight);
-
-      if (diff < minDiff) {
-        minDiff = diff;
-        bestPlayers = testPlayers;
-      }
+    // ── ถ้าเติมแค่ 1-2 คน: เอาต้นคิวตรงๆ ──────────────────────────────────
+    if (needed < 4) {
+      const candidates = waiting.slice(0, needed);
+      const newPlayers = [...court.players];
+      emptySlotIndices.forEach((idx, i) => { newPlayers[idx] = candidates[i].id; });
+      setCourts(prev => prev.map(c => c.id === courtId ? { ...c, players: newPlayers } : c));
+      setMembers(prev => prev.map(m => candidates.some(c => c.id === m.id) ? { ...m, status: 'playing' } : m));
+      return;
     }
 
-    setCourts(prev => prev.map(c => c.id === courtId ? { ...c, players: bestPlayers } : c));
-    const addedIds = candidates.map(m => m.id);
-    setMembers(prev => prev.map(m => addedIds.includes(m.id) ? { ...m, status: 'playing' } : m));
+    // ── ต้องการ 4 คน: หาชุดที่ดีที่สุดจาก pool ──────────────────────────────
+    // pool = 8 คนต้นคิว (เล่นน้อยสุด) เพื่อให้คนเล่นน้อยมีโอกาสสูงได้ลง
+    const POOL_SIZE = Math.min(8, waiting.length);
+    const pool = waiting.slice(0, POOL_SIZE);
+
+    // combinations C(pool, 4)
+    const getCombinations = (arr: typeof pool, k: number): (typeof pool)[] => {
+      if (k === 0) return [[]];
+      if (arr.length < k) return [];
+      const [first, ...rest] = arr;
+      return [
+        ...getCombinations(rest, k - 1).map(c => [first, ...c]),
+        ...getCombinations(rest, k),
+      ];
+    };
+    const combos = getCombinations(pool, 4);
+
+    // ── Scoring (ต่ำ = ดี) ────────────────────────────────────────────────────
+    const scoreCombination = (group: typeof pool): number => {
+      const weights = group.map(m => getW(m.id));
+
+      // หา team split ที่สมดุลที่สุดใน 3 วิธี
+      const splits = [
+        Math.abs(weights[0]+weights[1] - weights[2]-weights[3]),
+        Math.abs(weights[0]+weights[2] - weights[1]-weights[3]),
+        Math.abs(weights[0]+weights[3] - weights[1]-weights[2]),
+      ];
+      const teamDiff = Math.min(...splits);              // ผลต่างทีม (0=ดี)
+
+      // range ระดับทั้ง 4 คน
+      const maxW = Math.max(...weights);
+      const minW = Math.min(...weights);
+      const rankRange = maxW - minW;
+      // ยอมต่างกันได้ 2 ระดับ เกิน 2 โทษหนัก
+      const rangePenalty = Math.max(0, rankRange - 2) * 6;
+
+      // โบนัสถ้าใช้ 2 คนต้นคิวจริงๆ (ประกันว่าคนรอนานได้ลง)
+      const hasTop2 = group.some(m => m.id === pool[0].id) && group.some(m => m.id === pool[1].id);
+      const top2Bonus = hasTop2 ? 0 : 4;
+
+      // penalize คนที่เล่นเยอะเกินกว่าค่าเฉลี่ยใน pool
+      const avgGames = pool.reduce((a, m) => a + m.gamesPlayed, 0) / pool.length;
+      const gamesPenalty = group.reduce((sum, m) => sum + Math.max(0, m.gamesPlayed - avgGames), 0) * 0.4;
+
+      return teamDiff + rangePenalty + top2Bonus + gamesPenalty;
+    };
+
+    let bestCombo = combos[0];
+    let bestScore = Infinity;
+    for (const combo of combos) {
+      const score = scoreCombination(combo);
+      if (score < bestScore) { bestScore = score; bestCombo = combo; }
+    }
+
+    // จัด team split ที่สมดุลที่สุดสำหรับ bestCombo
+    const bw = bestCombo.map(m => ({ id: m.id, w: getW(m.id) }));
+    const allSplits = [
+      { order: [bw[0].id, bw[1].id, bw[2].id, bw[3].id], diff: Math.abs(bw[0].w+bw[1].w - bw[2].w-bw[3].w) },
+      { order: [bw[0].id, bw[2].id, bw[1].id, bw[3].id], diff: Math.abs(bw[0].w+bw[2].w - bw[1].w-bw[3].w) },
+      { order: [bw[0].id, bw[3].id, bw[1].id, bw[2].id], diff: Math.abs(bw[0].w+bw[3].w - bw[1].w-bw[2].w) },
+    ];
+    const finalIds = allSplits.reduce((best, s) => s.diff < best.diff ? s : best).order;
+
+    const newPlayers = [...court.players];
+    emptySlotIndices.forEach((idx, i) => { newPlayers[idx] = finalIds[i]; });
+    setCourts(prev => prev.map(c => c.id === courtId ? { ...c, players: newPlayers } : c));
+    setMembers(prev => prev.map(m => finalIds.includes(m.id) ? { ...m, status: 'playing' } : m));
   };
 
   // ── START GAME: commit 4 players, auto-count 1 shuttle ────────────────────
@@ -1209,13 +1254,6 @@ export default function App() {
               {!isSidebarCollapsed && <span>จัดการสินค้า</span>}
             </button>
 
-            <button onClick={() => setShowImport(true)}
-              title={isSidebarCollapsed ? "นำเข้าจากไลน์" : ""}
-              className={cn("w-full flex items-center text-secondary/75 font-semibold text-[15px] hover:bg-secondary/8 rounded-xl transition-colors",
-                isSidebarCollapsed ? "justify-center p-3.5" : "gap-3.5 px-4 py-3")}>
-              <FileText size={20} className="shrink-0" />
-              {!isSidebarCollapsed && <span>นำเข้าจากไลน์</span>}
-            </button>
 
             {/* Cloud Status Indicator */}
             <div className="px-4 pb-5">

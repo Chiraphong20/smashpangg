@@ -591,7 +591,7 @@ export function DashboardTab({
               <FileText size={14} /> ลงชื่อวันนี้ (ก๊อปรายชื่อไลน์)
             </button>
           </div>
-          <div className="flex flex-col md:flex-row items-center gap-3">
+          <div className="flex flex-col md:flex-row items-start md:items-center gap-3">
             <div className="relative group flex-1 w-48">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface/30 group-focus-within:text-primary transition-colors" size={14} />
               <input
@@ -602,7 +602,7 @@ export function DashboardTab({
                 className="w-full pl-9 pr-4 py-2 bg-background border-none rounded-xl text-sm font-semibold focus:ring-2 focus:ring-primary/20 outline-none shadow-sm transition-all"
               />
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-1.5">
               {[
                 { id: 'all', label: 'ทั้งหมด' },
                 { id: 'pending', label: 'ค้างชำระ' },
@@ -612,9 +612,9 @@ export function DashboardTab({
                   key={tab.id}
                   onClick={() => setStatusFilter(tab.id as any)}
                   className={cn(
-                    "px-4 py-1.5 rounded-lg font-semibold text-sm transition-all whitespace-nowrap",
-                    statusFilter === tab.id 
-                      ? "bg-primary text-white shadow-sm" 
+                    "px-3 py-1.5 rounded-lg font-semibold text-sm transition-all whitespace-nowrap",
+                    statusFilter === tab.id
+                      ? "bg-primary text-white shadow-sm"
                       : "bg-background text-on-surface/40 hover:bg-on-surface/5"
                   )}
                 >

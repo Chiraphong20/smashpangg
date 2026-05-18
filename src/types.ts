@@ -139,20 +139,3 @@ export const RANK_WEIGHTS: Record<Rank, number> = {
   'VIP3': 3, 'VIP2': 2, 'VIP1': 1,
 };
 
-export const DEFAULT_SNACKS: Snack[] = [
-  { id: 'water-s', name: 'น้ำเปล่า (เล็ก)', price: 10, icon: '💧', image: '/น้ำเล็ก.jpg' },
-  { id: 'water-l', name: 'น้ำเปล่า (ใหญ่)', price: 20, icon: '💧', image: '/น้ำ ใหญ่.jpg' },
-  { id: 'gatorade-s', name: 'เกเตอเรด (เล็ก)', price: 17, icon: '⚡', image: '/เกตาเล็ต เล็ก.jpg' },
-  { id: 'gatorade-l', name: 'เกเตอเรด (ใหญ่)', price: 25, icon: '⚡', image: '/เกตาเล็ต ใหญ่.jpg' },
-  { id: 'sponsor', name: 'สปอนเซอร์', price: 15, icon: '⚡', image: '/สปอนเซอร์.jpg' },
-  { id: 'm150', name: 'M-150', price: 15, icon: '🔥', image: '/M150.jpg' },
-  { id: 'pepsi', name: 'แป๊ปซี่', price: 17, icon: '🥤', image: '/แปปซี่.webp' },
-  { id: 'lipton-s', name: 'ลิปตัน (เล็ก)', price: 20, icon: '🥤', image: '/ลิปตันเล็ก.jpg' },
-  { id: 'lipton-l', name: 'ลิปตัน (ใหญ่)', price: 25, icon: '🥤', image: '/ลิบตันใหญ่.jpg' },
-  { id: 'kato', name: 'กาโตะ', price: 15, icon: '🧃', image: '/กาโตะ.jpg' },
-  { id: 'coconut', name: 'น้ำมะพร้าว', price: 25, icon: '🥥', image: '/น้ำมะพร้าว.jpg' },
-  { id: 'ichitan', name: 'อิชิตัน', price: 25, icon: '🍃', image: '/อิชิตัน.jpg' },
-  { id: 'oishi', name: 'โออิชิ', price: 20, icon: '🍃', image: '/โออิชิ.jpg' },
-  { id: 'vitamilk', name: 'ไวตามิ้ลค์', price: 15, icon: '🥛', image: '/ไวตามิล.jpg' },
-  { id: 'singha', name: 'เบียร์สิงห์', price: 60, icon: '🍺', image: '/เบียร์สิงห์.jpg' },
-];
