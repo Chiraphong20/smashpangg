@@ -74,6 +74,7 @@ export default function App() {
   const [importIsSession, setImportIsSession] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
   const [isInitialLoading, setIsInitialLoading] = useState(true);
+  const [lastAutoSave, setLastAutoSave] = useState<Date | null>(null);
   const [courtQueues, setCourtQueues] = useState<Record<string, CourtQueueSlot[]>>({});
   const [nextQueuePrompt, setNextQueuePrompt] = useState<{
     courtId: string; courtName: string; slot: CourtQueueSlot; emptyCourts: Court[];
@@ -144,6 +145,32 @@ export default function App() {
         setTimeout(() => setIsInitialLoading(false), 1200);
       }
     })();
+  }, []);
+
+  // Keep a ref with latest state for the auto-save interval
+  const autoSaveStateRef = useRef<object>({});
+  useEffect(() => {
+    autoSaveStateRef.current = {
+      members, courts, gameHistory, paymentHistory, sessionHistory,
+      rankMemory, courtFeePerPerson, shuttlePrice, snacks, sessionStartDate, courtQueues
+    };
+  }, [members, courts, gameHistory, paymentHistory, sessionHistory, rankMemory, courtFeePerPerson, shuttlePrice, snacks, sessionStartDate, courtQueues]);
+
+  // Auto-save every 2 minutes regardless of state changes
+  useEffect(() => {
+    const interval = setInterval(async () => {
+      try {
+        await fetch(`${API_BASE}/api/state`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(autoSaveStateRef.current)
+        });
+        setLastAutoSave(new Date());
+      } catch (err) {
+        console.warn('Auto-save failed:', err);
+      }
+    }, 2 * 60 * 1000);
+    return () => clearInterval(interval);
   }, []);
 
   // Debounced save EVERYTHING to Database
@@ -1263,9 +1290,16 @@ export default function App() {
                   {isSyncing && <div className="absolute inset-0 w-3 h-3 rounded-full bg-primary animate-ping opacity-40" />}
                 </div>
                 {!isSidebarCollapsed && (
-                  <span className={cn("text-[11px] font-semibold transition-colors duration-300", isSyncing ? "text-primary" : "text-on-surface/35")}>
-                    {isSyncing ? "กำลังซิงค์ข้อมูล..." : "เชื่อมต่อแล้ว"}
-                  </span>
+                  <div className="flex flex-col">
+                    <span className={cn("text-[11px] font-semibold transition-colors duration-300", isSyncing ? "text-primary" : "text-on-surface/35")}>
+                      {isSyncing ? "กำลังซิงค์ข้อมูล..." : "เชื่อมต่อแล้ว"}
+                    </span>
+                    {lastAutoSave && !isSyncing && (
+                      <span className="text-[10px] text-on-surface/25">
+                        บันทึกล่าสุด {lastAutoSave.toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' })}
+                      </span>
+                    )}
+                  </div>
                 )}
               </div>
             </div>
