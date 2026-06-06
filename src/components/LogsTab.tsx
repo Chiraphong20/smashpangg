@@ -112,6 +112,8 @@ export function LogsTab({ gameHistory, sessionHistory, members, paymentHistory, 
   const [memberHistory, setMemberHistory] = React.useState<MemberHistoryRecord[]>([]);
   const [memberHistoryLoading, setMemberHistoryLoading] = React.useState(false);
   const [memberHistorySearched, setMemberHistorySearched] = React.useState('');
+  const [showSuggestions, setShowSuggestions] = React.useState(false);
+  const memberSearchRef = React.useRef<HTMLDivElement>(null);
 
   const dropdownRef = React.useRef<HTMLDivElement>(null);
   const searchDebounce = React.useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -127,11 +129,14 @@ export function LogsTab({ gameHistory, sessionHistory, members, paymentHistory, 
       .catch(() => {});
   }, []);
 
-  // Close dropdown on outside click
+  // Close dropdowns on outside click
   React.useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (dropdownRef.current && !dropdownRef.current.contains(e.target as Node)) {
         setShowSessionDropdown(false);
+      }
+      if (memberSearchRef.current && !memberSearchRef.current.contains(e.target as Node)) {
+        setShowSuggestions(false);
       }
     };
     document.addEventListener('mousedown', handleClickOutside);
@@ -173,23 +178,47 @@ export function LogsTab({ gameHistory, sessionHistory, members, paymentHistory, 
     }
   };
 
+  const memberSuggestions = React.useMemo(() => {
+    if (!memberSearch.trim()) return [];
+    return members
+      .filter(m => m.name.toLowerCase().includes(memberSearch.toLowerCase()))
+      .slice(0, 8);
+  }, [memberSearch, members]);
+
+  const fetchMemberHistory = async (name: string) => {
+    setMemberHistory([]);
+    setMemberHistorySearched('');
+    if (!name.trim()) return;
+    setMemberHistoryLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/member-history?name=${encodeURIComponent(name.trim())}`);
+      const data: MemberHistoryRecord[] = await res.json();
+      setMemberHistory(data);
+      setMemberHistorySearched(name.trim());
+    } catch {
+      setMemberHistory([]);
+    } finally {
+      setMemberHistoryLoading(false);
+    }
+  };
+
   const handleMemberSearch = (name: string) => {
     setMemberSearch(name);
+    setShowSuggestions(true);
+    setMemberHistory([]);
+    setMemberHistorySearched('');
     if (searchDebounce.current) clearTimeout(searchDebounce.current);
-    if (!name.trim()) { setMemberHistory([]); setMemberHistorySearched(''); return; }
-    searchDebounce.current = setTimeout(async () => {
-      setMemberHistoryLoading(true);
-      try {
-        const res = await fetch(`${API_BASE}/api/member-history?name=${encodeURIComponent(name.trim())}`);
-        const data: MemberHistoryRecord[] = await res.json();
-        setMemberHistory(data);
-        setMemberHistorySearched(name.trim());
-      } catch {
-        setMemberHistory([]);
-      } finally {
-        setMemberHistoryLoading(false);
-      }
-    }, 400);
+  };
+
+  const handleSelectSuggestion = (name: string) => {
+    setMemberSearch(name);
+    setShowSuggestions(false);
+    fetchMemberHistory(name);
+  };
+
+  const handleSearchSubmit = () => {
+    setShowSuggestions(false);
+    fetchMemberHistory(memberSearch);
   };
 
   return (
@@ -306,15 +335,52 @@ export function LogsTab({ gameHistory, sessionHistory, members, paymentHistory, 
         </div>
 
         <div className="bg-white rounded-2xl shadow-sm border border-on-surface/5 p-4">
-          <div className="relative">
-            <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface/30" />
-            <input
-              type="text"
-              placeholder="พิมพ์ชื่อสมาชิก เช่น ต้น, เน็ต, กบ..."
-              value={memberSearch}
-              onChange={e => handleMemberSearch(e.target.value)}
-              className="w-full pl-10 pr-4 py-3 bg-background rounded-2xl outline-none focus:ring-2 focus:ring-primary/20 transition-all font-bold text-sm"
-            />
+          <div className="relative" ref={memberSearchRef}>
+            <div className="flex gap-2">
+              <div className="relative flex-1">
+                <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface/30" />
+                <input
+                  type="text"
+                  placeholder="พิมพ์ชื่อสมาชิก..."
+                  value={memberSearch}
+                  onChange={e => handleMemberSearch(e.target.value)}
+                  onFocus={() => setShowSuggestions(true)}
+                  onKeyDown={e => e.key === 'Enter' && handleSearchSubmit()}
+                  className="w-full pl-10 pr-4 py-3 bg-background rounded-2xl outline-none focus:ring-2 focus:ring-primary/20 transition-all font-bold text-sm"
+                />
+              </div>
+              <button
+                onClick={handleSearchSubmit}
+                disabled={!memberSearch.trim()}
+                className="px-5 py-3 bg-primary text-white font-black rounded-2xl text-sm disabled:opacity-40 hover:scale-[1.02] active:scale-95 transition-all"
+              >
+                ค้นหา
+              </button>
+            </div>
+
+            {/* Autocomplete suggestions */}
+            <AnimatePresence>
+              {showSuggestions && memberSuggestions.length > 0 && (
+                <motion.div
+                  initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }}
+                  transition={{ duration: 0.12 }}
+                  className="absolute top-full left-0 right-0 mt-1 bg-white rounded-2xl shadow-xl border border-on-surface/10 z-50 overflow-hidden"
+                >
+                  {memberSuggestions.map(m => (
+                    <button
+                      key={m.id}
+                      onClick={() => handleSelectSuggestion(m.name)}
+                      className="w-full flex items-center gap-3 px-4 py-3 hover:bg-primary/5 transition-colors text-left"
+                    >
+                      <div className={cn('w-7 h-7 rounded-lg flex items-center justify-center text-[10px] font-black shrink-0', RANK_COLORS[m.rank])}>
+                        {m.rank}
+                      </div>
+                      <span className="font-bold text-sm">{m.name}</span>
+                    </button>
+                  ))}
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
 
           {memberHistoryLoading && (
@@ -333,20 +399,25 @@ export function LogsTab({ gameHistory, sessionHistory, members, paymentHistory, 
 
           {!memberHistoryLoading && memberHistory.length > 0 && (
             <div className="mt-4 space-y-2">
-              <div className="flex items-center justify-between px-1 mb-3">
+              {/* Summary header */}
+              <div className="flex items-center justify-between px-1 mb-3 flex-wrap gap-2">
                 <p className="text-xs font-black text-primary">
-                  "{memberHistorySearched}" มาตี {memberHistory.length} ครั้ง
+                  "{memberHistorySearched}" มาตี {memberHistory.length} ครั้ง · รวม {memberHistory.reduce((a, r) => a + r.gamesPlayed, 0)} เกม
                 </p>
-                <p className="text-xs font-bold text-on-surface/40">
-                  รวมตี {memberHistory.reduce((a, r) => a + r.gamesPlayed, 0)} เกม
-                </p>
+                <div className="flex gap-3 text-xs font-bold">
+                  <span className="text-on-surface/50">รวมทั้งหมด ฿{memberHistory.reduce((a, r) => a + r.cost, 0).toLocaleString()}</span>
+                  {memberHistory.reduce((a, r) => a + Math.max(0, r.cost - r.paid), 0) > 0 && (
+                    <span className="text-error">ค้าง ฿{memberHistory.reduce((a, r) => a + Math.max(0, r.cost - r.paid), 0).toLocaleString()}</span>
+                  )}
+                </div>
               </div>
+
               {memberHistory.map(record => {
                 const unpaid = Math.max(0, record.cost - record.paid);
                 return (
-                  <div key={record.sessionId} className="flex items-center justify-between px-4 py-3 bg-background rounded-2xl">
+                  <div key={record.date} className="flex items-center justify-between px-4 py-3 bg-background rounded-2xl">
                     <div className="flex items-center gap-3">
-                      <div className="w-9 h-9 bg-primary/10 rounded-xl flex items-center justify-center">
+                      <div className="w-9 h-9 bg-primary/10 rounded-xl flex items-center justify-center shrink-0">
                         <span className="text-sm font-black text-primary">{format(record.date, 'd')}</span>
                       </div>
                       <div>
@@ -356,15 +427,15 @@ export function LogsTab({ gameHistory, sessionHistory, members, paymentHistory, 
                         </p>
                       </div>
                     </div>
-                    <div className="text-right">
-                      {record.cost > 0 && (
-                        <p className="font-black text-sm text-on-surface">฿{record.cost.toLocaleString()}</p>
-                      )}
-                      {record.paid > 0
-                        ? <p className="text-xs font-bold text-green-600">จ่ายแล้ว ฿{record.paid.toLocaleString()}</p>
-                        : unpaid > 0
-                          ? <p className="text-xs font-bold text-error">ค้างจ่าย ฿{unpaid.toLocaleString()}</p>
-                          : null}
+                    <div className="text-right shrink-0">
+                      <p className="font-black text-sm">฿{record.cost.toLocaleString()}</p>
+                      {record.paid > 0 && record.paid >= record.cost
+                        ? <p className="text-xs font-bold text-green-600">จ่ายครบแล้ว</p>
+                        : record.paid > 0
+                          ? <p className="text-xs font-bold text-orange-500">ค้าง ฿{unpaid.toLocaleString()}</p>
+                          : unpaid > 0
+                            ? <p className="text-xs font-bold text-error">ยังไม่จ่าย</p>
+                            : null}
                     </div>
                   </div>
                 );

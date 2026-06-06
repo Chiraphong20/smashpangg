@@ -213,7 +213,7 @@ app.get('/api/member-history', async (req, res) => {
       dateMap.set(key, entry);
     });
 
-    // Source 2: members_snapshot (catches sessions not in game_players)
+    // Source 2: members_snapshot — primary source for TOTAL COST (includes snacks)
     const [snapRows] = await pool.query(
       'SELECT date, members_snapshot FROM sessions WHERE members_snapshot LIKE ?',
       [`%${name}%`]
@@ -226,18 +226,13 @@ app.get('/api/member-history', async (req, res) => {
         if (!member || (member.gamesPlayed === 0 && (member.courtBalance + member.shuttleBalance + member.snackBalance) === 0)) return;
 
         const key = dayKey(r.date);
+        const totalCost = (member.courtBalance || 0) + (member.shuttleBalance || 0) + (member.snackBalance || 0);
         if (!dateMap.has(key)) {
-          // Only add if not already covered by game_players
-          dateMap.set(key, {
-            date: Number(r.date),
-            gamesPlayed: member.gamesPlayed || 0,
-            cost: (member.courtBalance || 0) + (member.shuttleBalance || 0) + (member.snackBalance || 0),
-            paid: 0
-          });
-        } else if (dateMap.get(key).cost === 0) {
-          // Enrich cost from snapshot if game_players had no cost data
-          const entry = dateMap.get(key);
-          entry.cost = (member.courtBalance || 0) + (member.shuttleBalance || 0) + (member.snackBalance || 0);
+          dateMap.set(key, { date: Number(r.date), gamesPlayed: member.gamesPlayed || 0, cost: totalCost, paid: 0 });
+        } else {
+          // Always override cost from snapshot — it's more accurate (includes snacks)
+          dateMap.get(key).cost = totalCost;
+          if (!dateMap.get(key).gamesPlayed) dateMap.get(key).gamesPlayed = member.gamesPlayed || 0;
         }
       } catch (e) {}
     });
