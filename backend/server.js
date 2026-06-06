@@ -190,7 +190,7 @@ app.get('/api/member-history', async (req, res) => {
       [`%${name}%`]
     );
 
-    const result = rows.map(r => {
+    const result = rows.reduce((acc, r) => {
       let gamesPlayed = 0;
       let balance = 0;
       if (r.members_snapshot) {
@@ -203,8 +203,9 @@ app.get('/api/member-history', async (req, res) => {
           }
         } catch (e) {}
       }
-      return { sessionId: r.id, date: Number(r.date), gamesPlayed, balance };
-    });
+      if (gamesPlayed > 0) acc.push({ sessionId: r.id, date: Number(r.date), gamesPlayed, balance });
+      return acc;
+    }, []);
 
     res.json(result);
   } catch (err) {
