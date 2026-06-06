@@ -1369,14 +1369,15 @@ export default function App() {
                   />
                 )}
                 {activeTab === 'logs' && (
-                  <LogsTab 
-                    gameHistory={gameHistory} 
-                    sessionHistory={sessionHistory} 
+                  <LogsTab
+                    gameHistory={gameHistory}
+                    sessionHistory={sessionHistory}
                     members={members}
                     paymentHistory={paymentHistory}
-                    onViewSession={setViewingSession} 
+                    onViewSession={setViewingSession}
                     onActiveTab={setActiveTab}
                     onUpdateGame={updateGame}
+                    onPullSession={pullSessionData}
                   />
                 )}
                 {activeTab === 'members' && (

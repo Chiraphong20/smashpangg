@@ -169,6 +169,49 @@ app.post('/api/sync', async (req, res) => {
   }
 });
 
+// GET ALL SESSION DATES
+app.get('/api/sessions', async (req, res) => {
+  try {
+    const [sessions] = await pool.query('SELECT id, date FROM sessions ORDER BY date DESC');
+    res.json(sessions.map(s => ({ id: s.id, date: Number(s.date) })));
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET MEMBER PLAY HISTORY
+app.get('/api/member-history', async (req, res) => {
+  const { name } = req.query;
+  if (!name) return res.status(400).json({ error: 'Missing name' });
+
+  try {
+    const [rows] = await pool.query(
+      `SELECT id, date, members_snapshot FROM sessions WHERE members_snapshot LIKE ? ORDER BY date DESC`,
+      [`%${name}%`]
+    );
+
+    const result = rows.map(r => {
+      let gamesPlayed = 0;
+      let balance = 0;
+      if (r.members_snapshot) {
+        try {
+          const snapshot = JSON.parse(r.members_snapshot);
+          const member = snapshot.find(m => m.name && m.name.toLowerCase().includes(name.toLowerCase()));
+          if (member) {
+            gamesPlayed = member.gamesPlayed || 0;
+            balance = (member.courtBalance || 0) + (member.shuttleBalance || 0) + (member.snackBalance || 0);
+          }
+        } catch (e) {}
+      }
+      return { sessionId: r.id, date: Number(r.date), gamesPlayed, balance };
+    });
+
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // PULL SESSION (Historical data)
 app.get('/api/session', async (req, res) => {
   const { date } = req.query; // YYYY-MM-DD

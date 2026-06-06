@@ -1,10 +1,12 @@
 import React from 'react';
 import { GameRecord, Member, PaymentRecord, RANK_COLORS, SessionRecord } from '../types';
-import { History, LayoutDashboard, Trophy, Clock, X, Check, Banknote, ShoppingCart, ChevronDown, ChevronUp, Calendar } from 'lucide-react';
+import { History, LayoutDashboard, Trophy, Clock, X, Check, Banknote, ShoppingCart, ChevronDown, ChevronUp, Calendar, Search, User } from 'lucide-react';
 import { format } from 'date-fns';
 import { th } from 'date-fns/locale';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
+
+const API_BASE = import.meta.env.VITE_API_URL || '';
 
 interface Props {
   gameHistory: GameRecord[];
@@ -14,7 +16,11 @@ interface Props {
   onViewSession: (session: SessionRecord) => void;
   onActiveTab: (tab: 'dashboard' | 'logs' | 'members' | 'courts' | 'settings') => void;
   onUpdateGame: (id: string, players: string[], shuttles: number) => void;
+  onPullSession: (date: string) => Promise<SessionRecord | undefined>;
 }
+
+interface SessionDate { id: string; date: number; }
+interface MemberHistoryRecord { sessionId: string; date: number; gamesPlayed: number; balance: number; }
 
 function EditGameModal({ game, members, onSave, onClose }: { game: GameRecord, members: Member[], onSave: (pids: string[], shuttles: number) => void, onClose: () => void }) {
   const [pids, setPids] = React.useState<string[]>(game.players.map(p => p.id));
@@ -57,14 +63,14 @@ function EditGameModal({ game, members, onSave, onClose }: { game: GameRecord, m
             </div>
 
             <div className="space-y-4">
-              <input 
+              <input
                 type="text" placeholder="ค้นหาชื่อผู้เล่น..." value={search} onChange={e => setSearch(e.target.value)}
                 className="w-full px-4 py-3 bg-background rounded-2xl outline-none focus:ring-2 focus:ring-primary/20 transition-all font-bold text-sm"
               />
               <div className="grid grid-cols-2 gap-2 max-h-48 overflow-y-auto pr-1 custom-scrollbar">
                 {filtered.map(m => (
-                  <button 
-                    key={m.id} 
+                  <button
+                    key={m.id}
                     onClick={() => {
                       if (pids.includes(m.id)) setPids(pids.filter(id => id !== m.id));
                       else if (pids.length < 4) setPids([...pids, m.id]);
@@ -81,8 +87,8 @@ function EditGameModal({ game, members, onSave, onClose }: { game: GameRecord, m
         </div>
 
         <div className="mt-8 pt-6 border-t border-on-surface/5">
-          <button 
-            disabled={pids.length !== 4} 
+          <button
+            disabled={pids.length !== 4}
             onClick={() => onSave(pids, shuttles)}
             className="w-full bg-primary text-white font-black py-4 rounded-3xl shadow-xl shadow-primary/20 hover:scale-[1.02] active:scale-95 disabled:opacity-50 disabled:scale-100 transition-all flex items-center justify-center gap-2"
           >
@@ -94,14 +100,32 @@ function EditGameModal({ game, members, onSave, onClose }: { game: GameRecord, m
   );
 }
 
-export function LogsTab({ gameHistory, sessionHistory, members, paymentHistory, onViewSession, onActiveTab, onUpdateGame }: Props) {
+export function LogsTab({ gameHistory, sessionHistory, members, paymentHistory, onViewSession, onActiveTab, onUpdateGame, onPullSession }: Props) {
   const [editingGame, setEditingGame] = React.useState<GameRecord | null>(null);
   const [expandedPayment, setExpandedPayment] = React.useState<string | null>(null);
   const [showSessionDropdown, setShowSessionDropdown] = React.useState(false);
+  const [allSessionDates, setAllSessionDates] = React.useState<SessionDate[]>([]);
+  const [loadingSession, setLoadingSession] = React.useState<string | null>(null);
+
+  // Member history search
+  const [memberSearch, setMemberSearch] = React.useState('');
+  const [memberHistory, setMemberHistory] = React.useState<MemberHistoryRecord[]>([]);
+  const [memberHistoryLoading, setMemberHistoryLoading] = React.useState(false);
+  const [memberHistorySearched, setMemberHistorySearched] = React.useState('');
+
   const dropdownRef = React.useRef<HTMLDivElement>(null);
-  
+  const searchDebounce = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+
   const logs = [...gameHistory].sort((a, b) => b.playedAt - a.playedAt);
   const payments = [...paymentHistory].sort((a, b) => b.timestamp - a.timestamp);
+
+  // Fetch all session dates from server on mount
+  React.useEffect(() => {
+    fetch(`${API_BASE}/api/sessions`)
+      .then(r => r.json())
+      .then((data: SessionDate[]) => setAllSessionDates(data))
+      .catch(() => {});
+  }, []);
 
   // Close dropdown on outside click
   React.useEffect(() => {
@@ -114,33 +138,72 @@ export function LogsTab({ gameHistory, sessionHistory, members, paymentHistory, 
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  // Deduplicate sessions by date (keep the one with the most activity)
-  const uniqueSessions = React.useMemo(() => {
-    const map = new Map<string, SessionRecord>();
+  // Merge API dates with in-memory sessionHistory (prefer in-memory for detail)
+  const mergedSessions = React.useMemo(() => {
+    const map = new Map<string, { date: number; session: SessionRecord | null }>();
+
+    // Add all API dates first
+    allSessionDates.forEach(s => {
+      const dateStr = format(s.date, 'yyyy-MM-dd');
+      map.set(dateStr, { date: s.date, session: null });
+    });
+
+    // Overlay with in-memory sessions (richer data)
     sessionHistory.forEach(s => {
       const dateStr = format(s.date, 'yyyy-MM-dd');
       const existing = map.get(dateStr);
-      const score = (s.gameHistory?.length || 0) + (s.paymentHistory?.length || 0);
-      const existScore = existing ? (existing.gameHistory?.length || 0) + (existing.paymentHistory?.length || 0) : -1;
-      if (!existing || score > existScore) {
-        map.set(dateStr, s);
-      }
+      map.set(dateStr, { date: existing?.date || s.date, session: s });
     });
-    return Array.from(map.values()).sort((a, b) => b.date - a.date);
-  }, [sessionHistory]);
+
+    return Array.from(map.entries())
+      .sort((a, b) => b[1].date - a[1].date)
+      .map(([dateStr, v]) => ({ dateStr, date: v.date, session: v.session }));
+  }, [allSessionDates, sessionHistory]);
+
+  const handleSelectSession = async (item: typeof mergedSessions[0]) => {
+    setShowSessionDropdown(false);
+    if (item.session) {
+      onViewSession(item.session);
+      onActiveTab('dashboard');
+    } else {
+      setLoadingSession(item.dateStr);
+      const result = await onPullSession(item.dateStr);
+      setLoadingSession(null);
+      if (result) onActiveTab('dashboard');
+    }
+  };
+
+  const handleMemberSearch = (name: string) => {
+    setMemberSearch(name);
+    if (searchDebounce.current) clearTimeout(searchDebounce.current);
+    if (!name.trim()) { setMemberHistory([]); setMemberHistorySearched(''); return; }
+    searchDebounce.current = setTimeout(async () => {
+      setMemberHistoryLoading(true);
+      try {
+        const res = await fetch(`${API_BASE}/api/member-history?name=${encodeURIComponent(name.trim())}`);
+        const data: MemberHistoryRecord[] = await res.json();
+        setMemberHistory(data);
+        setMemberHistorySearched(name.trim());
+      } catch {
+        setMemberHistory([]);
+      } finally {
+        setMemberHistoryLoading(false);
+      }
+    }, 400);
+  };
 
   return (
     <div className="space-y-6 max-w-4xl mx-auto">
       <AnimatePresence>
         {editingGame && (
-          <EditGameModal 
-            game={editingGame} 
-            members={members} 
-            onClose={() => setEditingGame(null)} 
+          <EditGameModal
+            game={editingGame}
+            members={members}
+            onClose={() => setEditingGame(null)}
             onSave={(pids, shuttles) => {
               onUpdateGame(editingGame.id, pids, shuttles);
               setEditingGame(null);
-            }} 
+            }}
           />
         )}
       </AnimatePresence>
@@ -158,8 +221,8 @@ export function LogsTab({ gameHistory, sessionHistory, members, paymentHistory, 
         </div>
       </div>
 
-      {/* Session History Section (Dropdown Calendar style) */}
-      {uniqueSessions.length > 0 && (
+      {/* Session History Dropdown */}
+      {mergedSessions.length > 0 && (
         <div className="space-y-3 relative z-40" ref={dropdownRef}>
           <div className="flex items-center gap-2 px-1">
             <h3 className="text-sm font-bold text-on-surface/50">ประวัติการตี (เซสชันที่ผ่านมา)</h3>
@@ -177,7 +240,7 @@ export function LogsTab({ gameHistory, sessionHistory, members, paymentHistory, 
                 <div className="text-left">
                   <p className="font-black text-sm text-on-surface">เลือกดูประวัติย้อนหลัง</p>
                   <p className="text-xs font-semibold text-on-surface/45">
-                    มีข้อมูลทั้งหมด {uniqueSessions.length} วัน
+                    มีข้อมูลทั้งหมด {mergedSessions.length} วัน
                   </p>
                 </div>
               </div>
@@ -194,31 +257,35 @@ export function LogsTab({ gameHistory, sessionHistory, members, paymentHistory, 
                   className="absolute top-full left-0 right-0 mt-2 bg-white rounded-2xl shadow-xl border border-on-surface/10 z-50 overflow-hidden max-h-80 overflow-y-auto custom-scrollbar"
                 >
                   <div className="p-2 space-y-1">
-                    {uniqueSessions.map(session => (
+                    {mergedSessions.map(item => (
                       <button
-                        key={session.id}
-                        onClick={() => {
-                          onViewSession(session);
-                          onActiveTab('dashboard');
-                          setShowSessionDropdown(false);
-                        }}
-                        className="w-full text-left flex items-center justify-between p-3 rounded-xl hover:bg-primary/5 transition-colors group"
+                        key={item.dateStr}
+                        onClick={() => handleSelectSession(item)}
+                        disabled={loadingSession === item.dateStr}
+                        className="w-full text-left flex items-center justify-between p-3 rounded-xl hover:bg-primary/5 transition-colors group disabled:opacity-60"
                       >
                         <div className="flex items-center gap-4">
-                          {/* Red dot indicating active session date */}
                           <div className="relative flex items-center justify-center w-10 h-10 rounded-xl bg-on-surface/5 group-hover:bg-primary/10 transition-colors">
-                            <span className="text-sm font-black text-on-surface/60 group-hover:text-primary">{format(session.date, 'd')}</span>
+                            <span className="text-sm font-black text-on-surface/60 group-hover:text-primary">
+                              {format(item.date, 'd')}
+                            </span>
                             <div className="absolute top-2 right-2 w-1.5 h-1.5 rounded-full bg-error ring-2 ring-white" />
                           </div>
                           <div>
-                            <p className="font-black text-sm group-hover:text-primary transition-colors">{format(session.date, 'd MMMM yyyy', { locale: th })}</p>
+                            <p className="font-black text-sm group-hover:text-primary transition-colors">
+                              {format(item.date, 'd MMMM yyyy', { locale: th })}
+                            </p>
                             <p className="text-xs font-semibold text-on-surface/45">
-                              {session.gameHistory.length} เกม · {session.membersSnapshot.length} ผู้เล่น
+                              {item.session
+                                ? `${item.session.gameHistory.length} เกม · ${item.session.membersSnapshot.length} ผู้เล่น`
+                                : loadingSession === item.dateStr ? 'กำลังโหลด...' : 'กดเพื่อโหลดข้อมูล'}
                             </p>
                           </div>
                         </div>
                         <div className="opacity-0 group-hover:opacity-100 transition-opacity p-2 bg-white rounded-full shadow-sm">
-                          <LayoutDashboard size={14} className="text-primary" />
+                          {loadingSession === item.dateStr
+                            ? <div className="w-3.5 h-3.5 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+                            : <LayoutDashboard size={14} className="text-primary" />}
                         </div>
                       </button>
                     ))}
@@ -229,6 +296,76 @@ export function LogsTab({ gameHistory, sessionHistory, members, paymentHistory, 
           </div>
         </div>
       )}
+
+      {/* Member History Search */}
+      <div className="space-y-3">
+        <div className="flex items-center gap-2 px-1">
+          <User size={14} className="text-secondary" />
+          <h3 className="text-sm font-bold text-on-surface/50">ค้นหาประวัติสมาชิก</h3>
+          <div className="h-px bg-on-surface/5 flex-1" />
+        </div>
+
+        <div className="bg-white rounded-2xl shadow-sm border border-on-surface/5 p-4">
+          <div className="relative">
+            <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface/30" />
+            <input
+              type="text"
+              placeholder="พิมพ์ชื่อสมาชิก เช่น ต้น, เน็ต, กบ..."
+              value={memberSearch}
+              onChange={e => handleMemberSearch(e.target.value)}
+              className="w-full pl-10 pr-4 py-3 bg-background rounded-2xl outline-none focus:ring-2 focus:ring-primary/20 transition-all font-bold text-sm"
+            />
+          </div>
+
+          {memberHistoryLoading && (
+            <div className="flex items-center justify-center py-8 gap-3 text-on-surface/40">
+              <div className="w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin" />
+              <span className="text-sm font-bold">กำลังค้นหา...</span>
+            </div>
+          )}
+
+          {!memberHistoryLoading && memberHistorySearched && memberHistory.length === 0 && (
+            <div className="text-center py-8 text-on-surface/40">
+              <User size={32} className="mx-auto mb-2 opacity-30" />
+              <p className="text-sm font-bold">ไม่พบข้อมูลของ "{memberHistorySearched}"</p>
+            </div>
+          )}
+
+          {!memberHistoryLoading && memberHistory.length > 0 && (
+            <div className="mt-4 space-y-2">
+              <div className="flex items-center justify-between px-1 mb-3">
+                <p className="text-xs font-black text-primary">
+                  "{memberHistorySearched}" มาตี {memberHistory.length} ครั้ง
+                </p>
+                <p className="text-xs font-bold text-on-surface/40">
+                  รวมตี {memberHistory.reduce((a, r) => a + r.gamesPlayed, 0)} เกม
+                </p>
+              </div>
+              {memberHistory.map(record => (
+                <div key={record.sessionId} className="flex items-center justify-between px-4 py-3 bg-background rounded-2xl">
+                  <div className="flex items-center gap-3">
+                    <div className="w-9 h-9 bg-primary/10 rounded-xl flex items-center justify-center">
+                      <span className="text-sm font-black text-primary">{format(record.date, 'd')}</span>
+                    </div>
+                    <div>
+                      <p className="font-black text-sm">{format(record.date, 'd MMMM yyyy', { locale: th })}</p>
+                      <p className="text-xs text-on-surface/45 font-semibold">
+                        {format(record.date, 'EEEE', { locale: th })}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <p className="font-black text-sm text-primary">{record.gamesPlayed} เกม</p>
+                    {record.balance > 0 && (
+                      <p className="text-xs font-bold text-on-surface/40">฿{record.balance.toLocaleString()}</p>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
 
       <div className="flex items-center gap-2 px-1">
         <h3 className="text-xs font-black uppercase text-secondary/60 tracking-widest">รายการของวันนี้</h3>
@@ -267,7 +404,6 @@ export function LogsTab({ gameHistory, sessionHistory, members, paymentHistory, 
                       )}
                     </div>
                   </button>
-                  {/* Snack details breakdown */}
                   {isExpanded && snackItems.length > 0 && (
                     <div className="px-5 pb-4 space-y-1.5 border-t border-on-surface/5 pt-3 bg-on-surface/[0.015]">
                       <p className="text-xs font-bold text-on-surface/40 mb-2 flex items-center gap-1"><ShoppingCart size={12} /> รายการสินค้า</p>
@@ -282,7 +418,7 @@ export function LogsTab({ gameHistory, sessionHistory, members, paymentHistory, 
                       ))}
                       <div className="flex items-center justify-between text-xs pt-2 border-t border-on-surface/5 mt-2">
                         <span className="font-bold text-on-surface/45 text-xs">รวมสินค้า</span>
-                        <span className="font-black text-tertiary">฿{snackItems.reduce((a,s)=>a+s.price,0)}</span>
+                        <span className="font-black text-tertiary">฿{snackItems.reduce((a, s) => a + s.price, 0)}</span>
                       </div>
                       {(p.details?.courtBalance ?? 0) > 0 && (
                         <div className="flex items-center justify-between text-xs">
@@ -320,8 +456,6 @@ export function LogsTab({ gameHistory, sessionHistory, members, paymentHistory, 
           logs.map((game, idx) => (
             <div key={game.id} className="bg-white rounded-[2rem] p-6 shadow-sm border border-on-surface/5 hover:shadow-md transition-shadow group">
               <div className="flex flex-col md:flex-row md:items-center gap-6">
-                
-                {/* Time & Index */}
                 <div className="flex items-center gap-4 shrink-0">
                   <div className="w-12 h-12 bg-primary/10 rounded-2xl flex items-center justify-center font-black text-primary text-xl">
                     {logs.length - idx}
@@ -332,24 +466,18 @@ export function LogsTab({ gameHistory, sessionHistory, members, paymentHistory, 
                   </div>
                 </div>
 
-                {/* Court Info */}
                 <div className="flex flex-col gap-2">
                   <div className="flex items-center gap-3 bg-background px-4 py-3 rounded-2xl shrink-0">
                     <Trophy size={16} className="text-primary/60" />
                     <span className="font-black text-sm">{game.courtName}</span>
                   </div>
-                  <button
-                    onClick={() => setEditingGame(game)}
-                    className="text-xs font-bold text-primary hover:underline"
-                  >
+                  <button onClick={() => setEditingGame(game)} className="text-xs font-bold text-primary hover:underline">
                     ✏️ แก้ไขยอด/ผู้เล่น
                   </button>
                 </div>
 
-                {/* Matchup */}
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 flex-wrap">
-                    {/* Team A */}
                     <div className="flex items-center gap-1.5 p-1.5 bg-primary/5 rounded-xl border border-primary/10">
                       <div className="flex items-center -space-x-2">
                         {game.players.slice(0, 2).map((p, i) => (
@@ -362,10 +490,7 @@ export function LogsTab({ gameHistory, sessionHistory, members, paymentHistory, 
                         {game.players.slice(0, 2).map(p => p.name).join(' & ')}
                       </span>
                     </div>
-
                     <span className="text-xs font-bold text-on-surface/25">VS</span>
-
-                    {/* Team B */}
                     <div className="flex items-center gap-1.5 p-1.5 bg-secondary/5 rounded-xl border border-secondary/10">
                       <div className="flex items-center -space-x-2">
                         {game.players.slice(2, 4).map((p, i) => (
@@ -381,7 +506,6 @@ export function LogsTab({ gameHistory, sessionHistory, members, paymentHistory, 
                   </div>
                 </div>
 
-                {/* Fees */}
                 <div className="flex items-center gap-6 shrink-0 md:border-l md:border-on-surface/5 md:pl-6 text-right">
                   <div>
                     <p className="text-xs font-semibold text-on-surface/40">ใช้ลูก</p>
