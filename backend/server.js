@@ -185,7 +185,15 @@ app.get('/api/member-history', async (req, res) => {
   if (!name) return res.status(400).json({ error: 'Missing name' });
 
   try {
-    // Primary source: game_players → count actual games per session
+    const dateMap = new Map(); // key = date (midnight timestamp)
+
+    const dayKey = (ts) => {
+      const d = new Date(Number(ts));
+      d.setHours(0, 0, 0, 0);
+      return d.getTime();
+    };
+
+    // Source 1: game_players (most reliable for game count)
     const [gameRows] = await pool.query(`
       SELECT s.id as session_id, s.date,
              COUNT(DISTINCT gp.game_id) as games_played,
@@ -195,36 +203,58 @@ app.get('/api/member-history', async (req, res) => {
       JOIN game_players gp ON gp.game_id = g.id
       WHERE gp.member_name LIKE ?
       GROUP BY s.id, s.date
-      ORDER BY s.date DESC
     `, [`%${name}%`]);
 
-    // Secondary: payments table for actual paid amount
-    const [payRows] = await pool.query(`
-      SELECT p.session_id, SUM(p.amount) as paid
-      FROM payments p
-      WHERE p.member_name LIKE ?
-      GROUP BY p.session_id
-    `, [`%${name}%`]);
-    const paidMap = {};
-    payRows.forEach(r => { paidMap[r.session_id] = Number(r.paid); });
-
-    // Deduplicate by date (same day may have 2 session IDs)
-    const dateMap = new Map();
     gameRows.forEach(r => {
-      const d = new Date(Number(r.date));
-      d.setHours(0, 0, 0, 0);
-      const key = d.getTime();
-      const existing = dateMap.get(key);
-      const games = Number(r.games_played);
-      const cost = Number(r.total_cost) || 0;
-      const paid = paidMap[r.session_id] || 0;
-      if (!existing) {
-        dateMap.set(key, { sessionId: r.session_id, date: Number(r.date), gamesPlayed: games, cost, paid });
-      } else {
-        existing.gamesPlayed += games;
-        existing.cost += cost;
-        existing.paid += paid;
-      }
+      const key = dayKey(r.date);
+      const entry = dateMap.get(key) || { date: Number(r.date), gamesPlayed: 0, cost: 0, paid: 0 };
+      entry.gamesPlayed += Number(r.games_played);
+      entry.cost += Number(r.total_cost) || 0;
+      dateMap.set(key, entry);
+    });
+
+    // Source 2: members_snapshot (catches sessions not in game_players)
+    const [snapRows] = await pool.query(
+      'SELECT date, members_snapshot FROM sessions WHERE members_snapshot LIKE ?',
+      [`%${name}%`]
+    );
+
+    snapRows.forEach(r => {
+      try {
+        const snapshot = JSON.parse(r.members_snapshot);
+        const member = snapshot.find(m => m.name && m.name.toLowerCase().includes(name.toLowerCase()));
+        if (!member || (member.gamesPlayed === 0 && (member.courtBalance + member.shuttleBalance + member.snackBalance) === 0)) return;
+
+        const key = dayKey(r.date);
+        if (!dateMap.has(key)) {
+          // Only add if not already covered by game_players
+          dateMap.set(key, {
+            date: Number(r.date),
+            gamesPlayed: member.gamesPlayed || 0,
+            cost: (member.courtBalance || 0) + (member.shuttleBalance || 0) + (member.snackBalance || 0),
+            paid: 0
+          });
+        } else if (dateMap.get(key).cost === 0) {
+          // Enrich cost from snapshot if game_players had no cost data
+          const entry = dateMap.get(key);
+          entry.cost = (member.courtBalance || 0) + (member.shuttleBalance || 0) + (member.snackBalance || 0);
+        }
+      } catch (e) {}
+    });
+
+    // Source 3: payments table for paid amount
+    const [payRows] = await pool.query(`
+      SELECT p.session_id, s.date, SUM(p.amount) as paid
+      FROM payments p
+      JOIN sessions s ON s.id = p.session_id
+      WHERE p.member_name LIKE ?
+      GROUP BY p.session_id, s.date
+    `, [`%${name}%`]);
+
+    payRows.forEach(r => {
+      const key = dayKey(r.date);
+      const entry = dateMap.get(key);
+      if (entry) entry.paid += Number(r.paid);
     });
 
     res.json(Array.from(dateMap.values()).sort((a, b) => b.date - a.date));
