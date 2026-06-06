@@ -185,29 +185,49 @@ app.get('/api/member-history', async (req, res) => {
   if (!name) return res.status(400).json({ error: 'Missing name' });
 
   try {
-    const [rows] = await pool.query(
-      `SELECT id, date, members_snapshot FROM sessions WHERE members_snapshot LIKE ? ORDER BY date DESC`,
-      [`%${name}%`]
-    );
+    // Primary source: game_players → count actual games per session
+    const [gameRows] = await pool.query(`
+      SELECT s.id as session_id, s.date,
+             COUNT(DISTINCT gp.game_id) as games_played,
+             SUM(g.shuttle_cost + g.court_fee) as total_cost
+      FROM sessions s
+      JOIN games g ON g.session_id = s.id
+      JOIN game_players gp ON gp.game_id = g.id
+      WHERE gp.member_name LIKE ?
+      GROUP BY s.id, s.date
+      ORDER BY s.date DESC
+    `, [`%${name}%`]);
 
-    const result = rows.reduce((acc, r) => {
-      let gamesPlayed = 0;
-      let balance = 0;
-      if (r.members_snapshot) {
-        try {
-          const snapshot = JSON.parse(r.members_snapshot);
-          const member = snapshot.find(m => m.name && m.name.toLowerCase().includes(name.toLowerCase()));
-          if (member) {
-            gamesPlayed = member.gamesPlayed || 0;
-            balance = (member.courtBalance || 0) + (member.shuttleBalance || 0) + (member.snackBalance || 0);
-          }
-        } catch (e) {}
+    // Secondary: payments table for actual paid amount
+    const [payRows] = await pool.query(`
+      SELECT p.session_id, SUM(p.amount) as paid
+      FROM payments p
+      WHERE p.member_name LIKE ?
+      GROUP BY p.session_id
+    `, [`%${name}%`]);
+    const paidMap = {};
+    payRows.forEach(r => { paidMap[r.session_id] = Number(r.paid); });
+
+    // Deduplicate by date (same day may have 2 session IDs)
+    const dateMap = new Map();
+    gameRows.forEach(r => {
+      const d = new Date(Number(r.date));
+      d.setHours(0, 0, 0, 0);
+      const key = d.getTime();
+      const existing = dateMap.get(key);
+      const games = Number(r.games_played);
+      const cost = Number(r.total_cost) || 0;
+      const paid = paidMap[r.session_id] || 0;
+      if (!existing) {
+        dateMap.set(key, { sessionId: r.session_id, date: Number(r.date), gamesPlayed: games, cost, paid });
+      } else {
+        existing.gamesPlayed += games;
+        existing.cost += cost;
+        existing.paid += paid;
       }
-      if (gamesPlayed > 0) acc.push({ sessionId: r.id, date: Number(r.date), gamesPlayed, balance });
-      return acc;
-    }, []);
+    });
 
-    res.json(result);
+    res.json(Array.from(dateMap.values()).sort((a, b) => b.date - a.date));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

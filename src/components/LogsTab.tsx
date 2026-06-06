@@ -20,7 +20,7 @@ interface Props {
 }
 
 interface SessionDate { id: string; date: number; }
-interface MemberHistoryRecord { sessionId: string; date: number; gamesPlayed: number; balance: number; }
+interface MemberHistoryRecord { sessionId: string; date: number; gamesPlayed: number; cost: number; paid: number; }
 
 function EditGameModal({ game, members, onSave, onClose }: { game: GameRecord, members: Member[], onSave: (pids: string[], shuttles: number) => void, onClose: () => void }) {
   const [pids, setPids] = React.useState<string[]>(game.players.map(p => p.id));
@@ -341,27 +341,34 @@ export function LogsTab({ gameHistory, sessionHistory, members, paymentHistory, 
                   รวมตี {memberHistory.reduce((a, r) => a + r.gamesPlayed, 0)} เกม
                 </p>
               </div>
-              {memberHistory.map(record => (
-                <div key={record.sessionId} className="flex items-center justify-between px-4 py-3 bg-background rounded-2xl">
-                  <div className="flex items-center gap-3">
-                    <div className="w-9 h-9 bg-primary/10 rounded-xl flex items-center justify-center">
-                      <span className="text-sm font-black text-primary">{format(record.date, 'd')}</span>
+              {memberHistory.map(record => {
+                const unpaid = Math.max(0, record.cost - record.paid);
+                return (
+                  <div key={record.sessionId} className="flex items-center justify-between px-4 py-3 bg-background rounded-2xl">
+                    <div className="flex items-center gap-3">
+                      <div className="w-9 h-9 bg-primary/10 rounded-xl flex items-center justify-center">
+                        <span className="text-sm font-black text-primary">{format(record.date, 'd')}</span>
+                      </div>
+                      <div>
+                        <p className="font-black text-sm">{format(record.date, 'd MMMM yyyy', { locale: th })}</p>
+                        <p className="text-xs text-on-surface/45 font-semibold">
+                          {format(record.date, 'EEEE', { locale: th })} · {record.gamesPlayed} เกม
+                        </p>
+                      </div>
                     </div>
-                    <div>
-                      <p className="font-black text-sm">{format(record.date, 'd MMMM yyyy', { locale: th })}</p>
-                      <p className="text-xs text-on-surface/45 font-semibold">
-                        {format(record.date, 'EEEE', { locale: th })}
-                      </p>
+                    <div className="text-right">
+                      {record.cost > 0 && (
+                        <p className="font-black text-sm text-on-surface">฿{record.cost.toLocaleString()}</p>
+                      )}
+                      {record.paid > 0
+                        ? <p className="text-xs font-bold text-green-600">จ่ายแล้ว ฿{record.paid.toLocaleString()}</p>
+                        : unpaid > 0
+                          ? <p className="text-xs font-bold text-error">ค้างจ่าย ฿{unpaid.toLocaleString()}</p>
+                          : null}
                     </div>
                   </div>
-                  <div className="text-right">
-                    <p className="font-black text-sm text-primary">{record.gamesPlayed} เกม</p>
-                    {record.balance > 0 && (
-                      <p className="text-xs font-bold text-on-surface/40">฿{record.balance.toLocaleString()}</p>
-                    )}
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>
