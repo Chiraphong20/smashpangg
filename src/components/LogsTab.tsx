@@ -341,7 +341,7 @@ export function LogsTab({ gameHistory, sessionHistory, members, paymentHistory, 
                 <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface/30" />
                 <input
                   type="text"
-                  placeholder="พิมพ์ชื่อสมาชิก..."
+                  placeholder="พิมพ์ชื่อ หรือหลายชื่อคั่น , เช่น เน็ต,เน็ตน่ารัก"
                   value={memberSearch}
                   onChange={e => handleMemberSearch(e.target.value)}
                   onFocus={() => setShowSuggestions(true)}

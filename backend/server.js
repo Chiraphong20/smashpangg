@@ -179,25 +179,28 @@ app.get('/api/sessions', async (req, res) => {
   }
 });
 
-// GET MEMBER PLAY HISTORY
+// GET MEMBER PLAY HISTORY (supports multi-name: "เน็ต,เน็ตน่ารัก")
 app.get('/api/member-history', async (req, res) => {
   const { name } = req.query;
   if (!name) return res.status(400).json({ error: 'Missing name' });
 
+  // แยกชื่อหลายชื่อด้วย , / ; / |
+  const names = name.split(/[,;|]/).map(n => n.trim()).filter(Boolean);
+
   try {
-    const dateMap = new Map(); // key = date (midnight timestamp)
+    const dateMap = new Map();
+    const dayKey = (ts) => { const d = new Date(Number(ts)); d.setHours(0,0,0,0); return d.getTime(); };
 
-    const dayKey = (ts) => {
-      const d = new Date(Number(ts));
-      d.setHours(0, 0, 0, 0);
-      return d.getTime();
-    };
-
-    // ดึงค่าสนามจาก settings (one-time per day per person)
-    const [settingsRows] = await pool.query('SELECT court_fee_per_person FROM settings LIMIT 1');
+    const [settingsRows] = await pool.query('SELECT court_fee_per_person, shuttle_price FROM settings LIMIT 1');
     const courtFee = Number(settingsRows[0]?.court_fee_per_person || 40);
+    const shuttlePrice = Number(settingsRows[0]?.shuttle_price || 25);
 
-    // Source 1: game_players — นับเกมและค่าลูก (court_fee ใน DB เป็น 0 เสมอ บวกเองจาก settings)
+    const likeNames = names.map(n => `%${n}%`);
+    const whereName = likeNames.map(() => 'gp.member_name LIKE ?').join(' OR ');
+    const whereSnap = likeNames.map(() => 'members_snapshot LIKE ?').join(' OR ');
+    const wherePay  = likeNames.map(() => 'p.member_name LIKE ?').join(' OR ');
+
+    // Source 1: game_players
     const [gameRows] = await pool.query(`
       SELECT s.id as session_id, s.date,
              COUNT(DISTINCT gp.game_id) as games_played,
@@ -205,52 +208,66 @@ app.get('/api/member-history', async (req, res) => {
       FROM sessions s
       JOIN games g ON g.session_id = s.id
       JOIN game_players gp ON gp.game_id = g.id
-      WHERE gp.member_name LIKE ?
+      WHERE ${whereName}
       GROUP BY s.id, s.date
-    `, [`%${name}%`]);
+    `, likeNames);
 
     gameRows.forEach(r => {
       const key = dayKey(r.date);
       const entry = dateMap.get(key) || { date: Number(r.date), gamesPlayed: 0, cost: 0, paid: 0 };
       entry.gamesPlayed += Number(r.games_played);
-      // ค่าลูก + ค่าสนาม (one-time)
       entry.cost += (Number(r.shuttle_total) || 0) + courtFee;
       dateMap.set(key, entry);
     });
 
-    // Source 2: members_snapshot — primary source for TOTAL COST (includes snacks)
+    // Source 2: members_snapshot
     const [snapRows] = await pool.query(
-      'SELECT date, members_snapshot FROM sessions WHERE members_snapshot LIKE ?',
-      [`%${name}%`]
+      `SELECT date, members_snapshot FROM sessions WHERE ${whereSnap}`, likeNames
     );
 
     snapRows.forEach(r => {
       try {
         const snapshot = JSON.parse(r.members_snapshot);
-        const member = snapshot.find(m => m.name && m.name.toLowerCase().includes(name.toLowerCase()));
-        if (!member || (member.gamesPlayed === 0 && (member.courtBalance + member.shuttleBalance + member.snackBalance) === 0)) return;
+        // หาสมาชิกที่ตรงกับชื่อใดชื่อหนึ่ง
+        const member = snapshot.find(m => m.name && names.some(n => m.name.toLowerCase().includes(n.toLowerCase())));
+        if (!member) return;
 
+        const games = member.gamesPlayed || 0;
+        const court = member.courtBalance || 0;
+        const shuttle = member.shuttleBalance || 0;
+        const snack = member.snackBalance || 0;
         const key = dayKey(r.date);
-        const snackCost = member.snackBalance || 0;
+
+        // ข้ามถ้าไม่มีข้อมูลเลย
+        if (games === 0 && court === 0 && shuttle === 0 && snack === 0) return;
+
         if (!dateMap.has(key)) {
-          // วันที่ไม่มีใน game_players ใช้ snapshot เต็ม
-          const totalCost = (member.courtBalance || 0) + (member.shuttleBalance || 0) + snackCost;
-          dateMap.set(key, { date: Number(r.date), gamesPlayed: member.gamesPlayed || 0, cost: totalCost, paid: 0 });
+          let cost = court + shuttle + snack;
+          // balance=0 แต่เล่นไปแล้ว = จ่ายแล้ว ประมาณค่าจาก settings
+          if (cost === 0 && games > 0) cost = courtFee + (games * shuttlePrice);
+          const paid = (cost > 0 && court === 0 && shuttle === 0) ? cost : 0;
+          dateMap.set(key, { date: Number(r.date), gamesPlayed: games, cost, paid });
         } else {
-          // เสริม snack cost ที่ game_players ไม่มี
-          if (snackCost > 0) dateMap.get(key).cost += snackCost;
+          const entry = dateMap.get(key);
+          if (snack > 0) entry.cost += snack;
         }
       } catch (e) {}
     });
 
-    // Source 3: payments — ดึง paid + cost ที่แม่นยำ (รวมของกิน) จาก details
+    // แก้ไข entry ที่ cost=0 แต่มี gamesPlayed (ก่อนถึง snapshot loop)
+    dateMap.forEach((entry) => {
+      if (entry.cost === 0 && entry.gamesPlayed > 0) {
+        entry.cost = courtFee + (entry.gamesPlayed * shuttlePrice);
+        entry.paid = entry.cost;
+      }
+    });
+
+    // Source 3: payments
     const [payRows] = await pool.query(`
       SELECT p.session_id, s.date, p.amount, p.details
-      FROM payments p
-      JOIN sessions s ON s.id = p.session_id
-      WHERE p.member_name LIKE ?
-      ORDER BY s.date DESC
-    `, [`%${name}%`]);
+      FROM payments p JOIN sessions s ON s.id = p.session_id
+      WHERE ${wherePay} ORDER BY s.date DESC
+    `, likeNames);
 
     const payDayMap = new Map();
     payRows.forEach(r => {
@@ -260,22 +277,19 @@ app.get('/api/member-history', async (req, res) => {
       e.paid += Number(r.amount);
       try {
         const det = JSON.parse(r.details);
-        e.court  += det.courtBalance || 0;
+        e.court   += det.courtBalance || 0;
         e.shuttle += det.shuttleBalance || 0;
-        e.snack  += (det.snackHistory || []).reduce((a, s) => a + (s.price || 0), 0);
+        e.snack   += (det.snackHistory || []).reduce((a, s) => a + (s.price || 0), 0);
       } catch {}
     });
 
-    // Merge payment data into dateMap
     payDayMap.forEach((pay, key) => {
       if (dateMap.has(key)) {
         const entry = dateMap.get(key);
         entry.paid = pay.paid;
-        // ถ้ามี payment details ให้ใช้ cost จาก payments (แม่นยำกว่า รวม snack)
         const payTotal = pay.court + pay.shuttle + pay.snack;
         if (payTotal > 0) entry.cost = payTotal;
       } else {
-        // วันที่จ่ายแต่ไม่มีใน game_players (เช่น session เก่า)
         const payTotal = pay.court + pay.shuttle + pay.snack;
         if (payTotal > 0 || pay.paid > 0) {
           dateMap.set(key, { date: pay.date, gamesPlayed: 0, cost: payTotal || pay.paid, paid: pay.paid });
