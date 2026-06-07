@@ -193,11 +193,15 @@ app.get('/api/member-history', async (req, res) => {
       return d.getTime();
     };
 
-    // Source 1: game_players (most reliable for game count)
+    // ดึงค่าสนามจาก settings (one-time per day per person)
+    const [settingsRows] = await pool.query('SELECT court_fee_per_person FROM settings LIMIT 1');
+    const courtFee = Number(settingsRows[0]?.court_fee_per_person || 40);
+
+    // Source 1: game_players — นับเกมและค่าลูก (court_fee ใน DB เป็น 0 เสมอ บวกเองจาก settings)
     const [gameRows] = await pool.query(`
       SELECT s.id as session_id, s.date,
              COUNT(DISTINCT gp.game_id) as games_played,
-             SUM(g.shuttle_cost + g.court_fee) as total_cost
+             SUM(g.shuttle_cost) as shuttle_total
       FROM sessions s
       JOIN games g ON g.session_id = s.id
       JOIN game_players gp ON gp.game_id = g.id
@@ -209,7 +213,8 @@ app.get('/api/member-history', async (req, res) => {
       const key = dayKey(r.date);
       const entry = dateMap.get(key) || { date: Number(r.date), gamesPlayed: 0, cost: 0, paid: 0 };
       entry.gamesPlayed += Number(r.games_played);
-      entry.cost += Number(r.total_cost) || 0;
+      // ค่าลูก + ค่าสนาม (one-time)
+      entry.cost += (Number(r.shuttle_total) || 0) + courtFee;
       dateMap.set(key, entry);
     });
 
@@ -226,13 +231,14 @@ app.get('/api/member-history', async (req, res) => {
         if (!member || (member.gamesPlayed === 0 && (member.courtBalance + member.shuttleBalance + member.snackBalance) === 0)) return;
 
         const key = dayKey(r.date);
-        const totalCost = (member.courtBalance || 0) + (member.shuttleBalance || 0) + (member.snackBalance || 0);
+        const snackCost = member.snackBalance || 0;
         if (!dateMap.has(key)) {
+          // วันที่ไม่มีใน game_players ใช้ snapshot เต็ม
+          const totalCost = (member.courtBalance || 0) + (member.shuttleBalance || 0) + snackCost;
           dateMap.set(key, { date: Number(r.date), gamesPlayed: member.gamesPlayed || 0, cost: totalCost, paid: 0 });
         } else {
-          // Always override cost from snapshot — it's more accurate (includes snacks)
-          dateMap.get(key).cost = totalCost;
-          if (!dateMap.get(key).gamesPlayed) dateMap.get(key).gamesPlayed = member.gamesPlayed || 0;
+          // เสริม snack cost ที่ game_players ไม่มี
+          if (snackCost > 0) dateMap.get(key).cost += snackCost;
         }
       } catch (e) {}
     });
