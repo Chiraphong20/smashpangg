@@ -237,19 +237,44 @@ app.get('/api/member-history', async (req, res) => {
       } catch (e) {}
     });
 
-    // Source 3: payments table for paid amount
+    // Source 3: payments — ดึง paid + cost ที่แม่นยำ (รวมของกิน) จาก details
     const [payRows] = await pool.query(`
-      SELECT p.session_id, s.date, SUM(p.amount) as paid
+      SELECT p.session_id, s.date, p.amount, p.details
       FROM payments p
       JOIN sessions s ON s.id = p.session_id
       WHERE p.member_name LIKE ?
-      GROUP BY p.session_id, s.date
+      ORDER BY s.date DESC
     `, [`%${name}%`]);
 
+    const payDayMap = new Map();
     payRows.forEach(r => {
       const key = dayKey(r.date);
-      const entry = dateMap.get(key);
-      if (entry) entry.paid += Number(r.paid);
+      if (!payDayMap.has(key)) payDayMap.set(key, { date: Number(r.date), paid: 0, court: 0, shuttle: 0, snack: 0 });
+      const e = payDayMap.get(key);
+      e.paid += Number(r.amount);
+      try {
+        const det = JSON.parse(r.details);
+        e.court  += det.courtBalance || 0;
+        e.shuttle += det.shuttleBalance || 0;
+        e.snack  += (det.snackHistory || []).reduce((a, s) => a + (s.price || 0), 0);
+      } catch {}
+    });
+
+    // Merge payment data into dateMap
+    payDayMap.forEach((pay, key) => {
+      if (dateMap.has(key)) {
+        const entry = dateMap.get(key);
+        entry.paid = pay.paid;
+        // ถ้ามี payment details ให้ใช้ cost จาก payments (แม่นยำกว่า รวม snack)
+        const payTotal = pay.court + pay.shuttle + pay.snack;
+        if (payTotal > 0) entry.cost = payTotal;
+      } else {
+        // วันที่จ่ายแต่ไม่มีใน game_players (เช่น session เก่า)
+        const payTotal = pay.court + pay.shuttle + pay.snack;
+        if (payTotal > 0 || pay.paid > 0) {
+          dateMap.set(key, { date: pay.date, gamesPlayed: 0, cost: payTotal || pay.paid, paid: pay.paid });
+        }
+      }
     });
 
     res.json(Array.from(dateMap.values()).sort((a, b) => b.date - a.date));
