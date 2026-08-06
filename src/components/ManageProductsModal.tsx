@@ -2,6 +2,7 @@ import React, { useState, useRef } from 'react';
 import { X, Plus, Trash2, Check, Pencil, Upload, Link, Image } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Snack } from '../types';
+import { useModalHotkeys } from '../hooks/useModalHotkeys';
 
 interface Props {
   open: boolean;
@@ -81,6 +82,7 @@ function ImageInput({
           <input
             value={urlInput}
             onChange={e => setUrlInput(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') { e.stopPropagation(); onChange(urlInput.trim()); } }}
             placeholder="https://example.com/image.jpg"
             className="flex-1 px-3 py-2 bg-white rounded-xl border border-on-surface/10 focus:ring-2 focus:ring-primary/20 text-sm font-medium"
           />
@@ -142,6 +144,10 @@ export function ManageProductsModal({ open, onClose, snacks, onSave }: Props) {
     onSave(items);
     onClose();
   };
+
+  // Esc closes, Enter saves — unless focus is in a sub-field that has its own Enter behavior
+  // (those fields call e.stopPropagation() in their own onKeyDown to opt out).
+  useModalHotkeys({ onClose, onSubmit: handleSave, enabled: open });
 
   const updateItem = (id: string, field: keyof Snack, value: string | number) => {
     setItems(prev => prev.map(s => s.id === id ? { ...s, [field]: value } : s));
@@ -211,8 +217,10 @@ export function ManageProductsModal({ open, onClose, snacks, onSave }: Props) {
                         />
                         <div className="flex gap-2">
                           <input
+                            autoFocus
                             value={item.name}
                             onChange={e => updateItem(item.id, 'name', e.target.value)}
+                            onKeyDown={e => { if (e.key === 'Enter') { e.stopPropagation(); setEditing(null); } }}
                             className="flex-1 px-3 py-2 bg-white rounded-xl border-none focus:ring-2 focus:ring-primary/20 font-bold text-sm"
                             placeholder="ชื่อสินค้า"
                           />
@@ -220,6 +228,7 @@ export function ManageProductsModal({ open, onClose, snacks, onSave }: Props) {
                             type="number"
                             value={item.price}
                             onChange={e => updateItem(item.id, 'price', Number(e.target.value))}
+                            onKeyDown={e => { if (e.key === 'Enter') { e.stopPropagation(); setEditing(null); } }}
                             className="w-20 px-3 py-2 bg-white rounded-xl border-none focus:ring-2 focus:ring-primary/20 font-bold text-sm"
                             placeholder="฿"
                           />
@@ -277,7 +286,7 @@ export function ManageProductsModal({ open, onClose, snacks, onSave }: Props) {
                         autoFocus
                         value={newName}
                         onChange={e => setNewName(e.target.value)}
-                        onKeyDown={e => e.key === 'Enter' && addItem()}
+                        onKeyDown={e => { if (e.key === 'Enter') { e.stopPropagation(); addItem(); } }}
                         className="flex-1 px-3 py-2 bg-white rounded-xl border-none focus:ring-2 focus:ring-primary/20 font-bold text-sm"
                         placeholder="ชื่อสินค้า"
                       />
@@ -285,7 +294,7 @@ export function ManageProductsModal({ open, onClose, snacks, onSave }: Props) {
                         type="number"
                         value={newPrice}
                         onChange={e => setNewPrice(e.target.value)}
-                        onKeyDown={e => e.key === 'Enter' && addItem()}
+                        onKeyDown={e => { if (e.key === 'Enter') { e.stopPropagation(); addItem(); } }}
                         className="w-20 px-3 py-2 bg-white rounded-xl border-none focus:ring-2 focus:ring-primary/20 font-bold text-sm"
                         placeholder="฿"
                       />

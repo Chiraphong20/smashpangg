@@ -18,10 +18,14 @@ import { ImportMembersModal } from './components/ImportMembersModal';
 import { LogsTab } from './components/LogsTab';
 import { QueueView } from './components/QueueView';
 import { RANK_WEIGHTS } from './types';
+import { useModalHotkeys } from './hooks/useModalHotkeys';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
 type Tab = 'dashboard' | 'members' | 'courts' | 'settings' | 'logs';
+
+const TAB_SHORTCUTS: Partial<Record<Tab, string>> = { dashboard: 'F1', courts: 'F2', logs: 'F3', members: 'F4' };
+const SHORTCUT_TABS: Record<string, Tab> = { F1: 'dashboard', F2: 'courts', F3: 'logs', F4: 'members' };
 
 const mkMember = (id: string, name: string, rank: Rank, gamesPlayed: number, offset: number): Member => ({
   id, name, rank, gamesPlayed,
@@ -222,6 +226,19 @@ export default function App() {
     }, 5000); // Save master data less frequently
     return () => clearTimeout(handler);
   }, [members, courtFeePerPerson, shuttlePrice]);
+
+  // Keyboard shortcuts: F1 ภาพรวม, F2 คอร์ด, F3 บันทึก, F4 สมาชิก
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const tab = SHORTCUT_TABS[e.key];
+      if (tab) {
+        e.preventDefault();
+        setActiveTab(tab);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   const resetDay = async () => {
     if (!confirm('คุณแน่ใจหรือไม่ว่าต้องการเริ่มวันใหม่? (ล้างประวัติการตีและรีเซ็ตคอร์ด)')) return;
@@ -737,6 +754,13 @@ export default function App() {
     setNextQueuePrompt(null);
   };
 
+  // Next-queue prompt: Esc dismisses, Enter starts at the suggested court (the default action)
+  useModalHotkeys({
+    onClose: () => setNextQueuePrompt(null),
+    onSubmit: () => { if (nextQueuePrompt) confirmNextQueue(nextQueuePrompt.courtId, nextQueuePrompt.slot, nextQueuePrompt.courtId); },
+    enabled: !!nextQueuePrompt,
+  });
+
   // ── PLAYER MANAGEMENT ─────────────────────────────────────────────────────
   const removePlayerFromCourt = (courtId: string, slotIndex: number) => {
     const court = courts.find(c => c.id === courtId);
@@ -1131,9 +1155,9 @@ export default function App() {
 
   const tabs = [
     { id: 'dashboard', icon: LayoutDashboard, label: 'ภาพรวม' },
-    { id: 'members', icon: Users, label: 'สมาชิก' },
     { id: 'courts', icon: Trophy, label: 'คอร์ด' },
     { id: 'logs', icon: History, label: 'บันทึก' },
+    { id: 'members', icon: Users, label: 'สมาชิก' },
     { id: 'settings', icon: Settings, label: 'ตั้งค่าระบบ' },
   ];
 
@@ -1254,7 +1278,13 @@ export default function App() {
                   isSidebarCollapsed ? "justify-center p-3.5" : "gap-3.5 px-4 py-3.5",
                   activeTab === item.id ? 'bg-white text-primary shadow-sm translate-x-1' : 'text-on-surface/55 hover:text-on-surface hover:bg-white/60')}>
                 <item.icon size={22} className="shrink-0" />
-                {!isSidebarCollapsed && <span>{item.label}</span>}
+                {!isSidebarCollapsed && <span className="flex-1 text-left">{item.label}</span>}
+                {!isSidebarCollapsed && TAB_SHORTCUTS[item.id as Tab] && (
+                  <span className={cn('text-[10px] font-bold px-1.5 py-0.5 rounded-md border',
+                    activeTab === item.id ? 'border-primary/25 text-primary/60' : 'border-on-surface/15 text-on-surface/35')}>
+                    {TAB_SHORTCUTS[item.id as Tab]}
+                  </span>
+                )}
               </button>
             ))}
           </nav>

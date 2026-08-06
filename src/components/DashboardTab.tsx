@@ -1,7 +1,7 @@
-import { useState, useEffect, useMemo } from 'react';
-import { 
-  Users, TrendingUp, Calendar, Search, LogOut, Check, ChevronUp, ChevronDown, 
-  Trash2, ShoppingCart, UserPlus, Clock, Trophy, FileText, ChevronLeft, Bolt, Banknote, X, Plus, RefreshCw, Monitor, Cloud, Upload, Download, CheckCircle2, History 
+import { useState, useEffect, useMemo, useRef } from 'react';
+import {
+  Users, TrendingUp, Calendar, Search, LogOut, Check, ChevronUp, ChevronDown,
+  Trash2, ShoppingCart, UserPlus, Clock, Trophy, FileText, ChevronLeft, Bolt, Banknote, X, Plus, RefreshCw, Monitor, Cloud, Upload, Download, CheckCircle2, History, Gift
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
@@ -9,6 +9,7 @@ import { Member, Court, PaymentRecord, GameRecord, Snack, Rank, RANKS, RANK_COLO
 import { format } from 'date-fns';
 import { th } from 'date-fns/locale';
 import { POSModal } from './POSModal';
+import { useModalHotkeys } from '../hooks/useModalHotkeys';
 
 interface Props {
   members: Member[];
@@ -77,6 +78,13 @@ function CheckoutModal({ member, gameHistory, otherMembers, paymentHistory = [],
     : [];
   // ถ้าคนยังไม่จ่าย ใช้ snackHistory ปกติ ถ้าจ่ายแล้วใช้จาก payment records
   const displaySnackHistory = isPaid ? paidSnackHistory : (member.snackHistory || []);
+
+  useModalHotkeys({
+    onClose,
+    onSubmit: () => {
+      if (!isReadOnly && member.status !== 'paid' && displayAmount >= 0) onPay(displayAmount, selectedOthers);
+    },
+  });
 
   return (
     <div className="fixed inset-0 z-[200] flex items-center justify-center p-4">
@@ -160,6 +168,7 @@ function CheckoutModal({ member, gameHistory, otherMembers, paymentHistory = [],
                           }}
                           onKeyDown={e => {
                             if (e.key === 'Enter') {
+                              e.stopPropagation();
                               const p = parseFloat(tempPrice);
                               if (!isNaN(p)) onUpdateSnackPrice(member.id, idx, p);
                               setEditingSnackIndex(null);
@@ -268,6 +277,7 @@ function CheckoutModal({ member, gameHistory, otherMembers, paymentHistory = [],
                   onChange={(e) => setManualAmount(Number(e.target.value))}
                   onKeyDown={(e) => {
                     if (e.key === 'Enter' && !isReadOnly && member.status !== 'paid' && displayAmount >= 0) {
+                      e.stopPropagation();
                       onPay(displayAmount, selectedOthers);
                     }
                   }}
@@ -325,6 +335,91 @@ function CheckoutModal({ member, gameHistory, otherMembers, paymentHistory = [],
   );
 }
 
+// Search+select popup used by the "เสียน้ำให้เพื่อน" flow — reused for both steps
+// (pick the payer, then pick who they're treating).
+function TreatMemberPicker({ title, subtitle, members, excludeId, onSelect, onClose }: {
+  title: string;
+  subtitle: string;
+  members: Member[];
+  excludeId?: string;
+  onSelect: (member: Member) => void;
+  onClose: () => void;
+}) {
+  const [q, setQ] = useState('');
+  const [highlightedIndex, setHighlightedIndex] = useState(0);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const itemRefs = useRef<(HTMLButtonElement | null)[]>([]);
+
+  useEffect(() => { inputRef.current?.focus(); }, []);
+  useEffect(() => { setHighlightedIndex(0); }, [q]);
+  useEffect(() => { itemRefs.current[highlightedIndex]?.scrollIntoView({ block: 'nearest' }); }, [highlightedIndex]);
+
+  const list = members
+    .filter(m => m.id !== excludeId && m.name.toLowerCase().includes(q.toLowerCase()))
+    .sort((a, b) => a.name.localeCompare(b.name, 'th'));
+
+  useModalHotkeys({
+    onClose,
+    onSubmit: () => { if (list[highlightedIndex]) onSelect(list[highlightedIndex]); },
+  });
+
+  return (
+    <div className="fixed inset-0 z-[180] flex items-center justify-center p-4">
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
+        onClick={onClose} className="absolute inset-0 bg-on-surface/50 backdrop-blur-sm" />
+      <motion.div initial={{ scale: 0.95, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} exit={{ scale: 0.95, opacity: 0 }}
+        onClick={e => e.stopPropagation()}
+        className="bg-white rounded-[2rem] w-full max-w-md shadow-2xl relative z-10 flex flex-col max-h-[80vh]">
+        <div className="flex items-center gap-3 p-6 pb-4 shrink-0">
+          <div className="w-11 h-11 bg-tertiary/10 rounded-2xl flex items-center justify-center shrink-0">
+            <Gift size={20} className="text-tertiary" />
+          </div>
+          <div className="flex-1 min-w-0">
+            <h2 className="font-headline font-black text-lg leading-tight">{title}</h2>
+            <p className="text-xs font-semibold text-on-surface/45">{subtitle}</p>
+          </div>
+          <button onClick={onClose} className="p-2 rounded-full hover:bg-background text-on-surface/30 shrink-0"><X size={18} /></button>
+        </div>
+
+        <div className="px-6 pb-3 shrink-0">
+          <div className="relative">
+            <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface/30" />
+            <input
+              ref={inputRef}
+              value={q}
+              onChange={e => setQ(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'ArrowDown') { e.preventDefault(); setHighlightedIndex(i => Math.min(i + 1, list.length - 1)); }
+                else if (e.key === 'ArrowUp') { e.preventDefault(); setHighlightedIndex(i => Math.max(i - 1, 0)); }
+              }}
+              placeholder="ค้นหาชื่อเพื่อน..."
+              className="w-full pl-9 pr-3 py-2.5 bg-background rounded-xl text-sm font-bold focus:outline-none focus:ring-2 focus:ring-primary/20"
+            />
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-3 pb-3 min-h-0">
+          {list.length === 0 && <p className="text-center py-6 text-sm text-on-surface/30 font-bold">ไม่พบเพื่อน</p>}
+          {list.map((m, idx) => (
+            <button key={m.id}
+              ref={el => { itemRefs.current[idx] = el; }}
+              onClick={() => onSelect(m)}
+              onMouseEnter={() => setHighlightedIndex(idx)}
+              className={cn('w-full flex items-center gap-3 px-3 py-3 rounded-2xl transition-colors text-left',
+                idx === highlightedIndex ? 'bg-tertiary/10 ring-2 ring-inset ring-tertiary/30' : 'hover:bg-background')}>
+              <div className={cn('w-10 h-10 rounded-xl flex items-center justify-center font-black text-sm shrink-0', RANK_COLORS[m.rank])}>{m.rank}</div>
+              <div className="flex-1 min-w-0">
+                <p className="font-bold text-sm truncate">{m.name}</p>
+                <p className="text-xs text-on-surface/40">{m.gamesPlayed} เกม</p>
+              </div>
+            </button>
+          ))}
+        </div>
+      </motion.div>
+    </div>
+  );
+}
+
 export function DashboardTab({
   members, courts, snacks, paymentHistory, gameHistory,
   onAddSnack, onUpdateRank, onRemoveSnack, onUpdateSnackPrice, viewingSession, onCloseSession,
@@ -335,39 +430,42 @@ export function DashboardTab({
   isSyncing, onImportLine,
   sessionStartDate
 }: Props) {
-  const [selectedMember, setSelectedMember] = useState<Member | null>(null);
+  // เก็บแค่ id ไม่เก็บ snapshot ของ Member ทั้งก้อน — เดี๋ยว modal จะได้อ่านข้อมูลสดจาก currentMembers
+  // เสมอ (ไม่งั้นพอลบสินค้า/แก้ไขอะไรระหว่างเปิด modal อยู่ จะไม่เห็นการเปลี่ยนแปลงจนกว่าจะปิดเปิดใหม่)
+  const [selectedMemberId, setSelectedMemberId] = useState<string | null>(null);
   const [posTarget, setPosTarget] = useState<Member | null>(null);
+  // "เสียน้ำให้เพื่อน": เลือกคนจ่าย (A) ก่อน แล้วค่อยเลือกคนรับ (B)
+  const [treatStep, setTreatStep] = useState<'payer' | 'recipient' | null>(null);
+  const [treatPayer, setTreatPayer] = useState<Member | null>(null);
+  const [treatRecipient, setTreatRecipient] = useState<Member | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [dbSearch, setDbSearch] = useState('');
   const [checkedIds, setCheckedIds] = useState<string[]>([]);
-  const [bulkCheckout, setBulkCheckout] = useState<{ member: Member, others: string[] } | null>(null);
+  const [bulkCheckoutInfo, setBulkCheckoutInfo] = useState<{ memberId: string, others: string[] } | null>(null);
   const [sortConfig, setSortConfig] = useState<{ key: 'default' | 'name' | 'shuttles' | 'balance' | 'games', direction: 'asc' | 'desc' }>({ key: 'default', direction: 'desc' });
   const [statusFilter, setStatusFilter] = useState<'all' | 'pending' | 'paid'>('all');
+  const [highlightedIndex, setHighlightedIndex] = useState<number>(-1);
+  const searchInputRef = useRef<HTMLInputElement>(null);
+  const rowRefs = useRef<(HTMLDivElement | null)[]>([]);
 
   const isReadOnly = !!viewingSession;
   const currentMembers = viewingSession ? viewingSession.membersSnapshot : members;
   const currentPayments = viewingSession ? viewingSession.paymentHistory : paymentHistory;
   const currentGames = viewingSession ? viewingSession.gameHistory : gameHistory;
 
-  // Keyboard shortcut: Press Enter to checkout selected members
-  useEffect(() => {
-    const handleKeyUp = (e: KeyboardEvent) => {
-      if (e.key === 'Enter' && checkedIds.length > 0 && !bulkCheckout && !selectedMember && !posTarget && !settingsOpen) {
-        // If user is focused on a text input, don't trigger (unless it's a checkbox)
-        const active = document.activeElement as HTMLElement;
-        if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA')) {
-          if ((active as HTMLInputElement).type !== 'checkbox') return;
-        }
+  // คนที่ "มาตีวันนี้จริงๆ" (ไม่ใช่สมาชิกทั้งหมดในฐานข้อมูล) — ใช้เป็นตัวเลือกใน "เสียน้ำให้เพื่อน"
+  const todayPlayers = useMemo(
+    () => currentMembers.filter(m => m.status !== 'resting' || m.balance > 0 || m.gamesPlayed > 0),
+    [currentMembers]
+  );
 
-        const mainMember = currentMembers.find(m => m.id === checkedIds[0]);
-        if (mainMember) {
-          setBulkCheckout({ member: mainMember, others: checkedIds.slice(1) });
-        }
-      }
-    };
-    window.addEventListener('keyup', handleKeyUp);
-    return () => window.removeEventListener('keyup', handleKeyUp);
-  }, [checkedIds, bulkCheckout, selectedMember, posTarget, settingsOpen, currentMembers]);
+  // ข้อมูลสดของคนที่กำลังเปิด CheckoutModal อยู่ (bulk เอาก่อน ถ้าไม่มีค่อยใช้ selectedMemberId)
+  // คำนวณใหม่ทุกครั้งที่ currentMembers เปลี่ยน จึงเห็นผลการลบ/แก้ไขสินค้าในตัวทันทีไม่ต้องปิดเปิด modal ใหม่
+  const activeCheckoutMemberId = bulkCheckoutInfo?.memberId ?? selectedMemberId;
+  const activeCheckoutMember = activeCheckoutMemberId
+    ? currentMembers.find(m => m.id === activeCheckoutMemberId) ?? null
+    : null;
+  const activeCheckoutOthers = bulkCheckoutInfo?.others ?? [];
 
   const filteredMembers = useMemo(() => {
     const query = dbSearch.toLowerCase().trim();
@@ -428,6 +526,81 @@ export function DashboardTab({
     }
     return list;
   }, [filteredMembers, sortConfig]);
+
+  // Keyboard shortcut: Press Enter to checkout selected/highlighted members
+  // ต้องใช้ 'keydown' (ไม่ใช่ 'keyup') ให้เฟสเดียวกับตัวดักคีย์ของ modal อื่นๆ (Checkout/POS ใช้
+  // 'keydown' ปิดตัวเองทั้งคู่) — ถ้าใช้คนละเฟสกัน พอกด Enter ปิด modal ตอน keydown จะทำให้ state
+  // (selectedMember/posTarget) กลายเป็น null ไปแล้วตอน keyup มาถึง เงื่อนไขกันซ้ำด้านล่างเลยหลุด
+  // แล้วเปิด modal ของคนที่ไฮไลต์อยู่ซ้อนขึ้นมาอีกอันจากการกด Enter ครั้งเดียวกัน
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key !== 'Enter' || bulkCheckoutInfo || selectedMemberId || posTarget || treatStep || settingsOpen) return;
+
+      const active = document.activeElement as HTMLElement;
+      // If user is focused on a text input, don't trigger (unless it's the search box or a checkbox)
+      if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA') && active !== searchInputRef.current) {
+        if ((active as HTMLInputElement).type !== 'checkbox') return;
+      }
+
+      if (checkedIds.length > 0) {
+        const mainMember = currentMembers.find(m => m.id === checkedIds[0]);
+        if (mainMember) { e.preventDefault(); setBulkCheckoutInfo({ memberId: mainMember.id, others: checkedIds.slice(1) }); }
+      } else if (highlightedIndex >= 0 && sortedMembers[highlightedIndex]) {
+        e.preventDefault();
+        setSelectedMemberId(sortedMembers[highlightedIndex].id);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [checkedIds, bulkCheckoutInfo, selectedMemberId, posTarget, treatStep, settingsOpen, currentMembers, highlightedIndex, sortedMembers]);
+
+  // Keyboard shortcuts: Space -> focus search, + -> ลงชื่อวันนี้, ↑/↓ -> เลื่อนเลือกชื่อในตาราง
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (bulkCheckoutInfo || selectedMemberId || posTarget || treatStep || settingsOpen) return;
+
+      const active = document.activeElement as HTMLElement;
+      const isSearchFocused = active === searchInputRef.current;
+      const isOtherInputFocused = !!active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.tagName === 'SELECT') && !isSearchFocused
+        && (active as HTMLInputElement).type !== 'checkbox';
+      if (isOtherInputFocused) return;
+
+      if (e.key === ' ' && !isSearchFocused) {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+      } else if (e.key === '+') {
+        e.preventDefault();
+        onImportLine();
+      } else if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setHighlightedIndex(prev => sortedMembers.length === 0 ? -1 : Math.min(prev + 1, sortedMembers.length - 1));
+      } else if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setHighlightedIndex(prev => sortedMembers.length === 0 ? -1 : Math.max(prev - 1, 0));
+      } else if (e.key === '/' || e.code === 'Slash') {
+        // "/" = เปิด modal ขายของ (สินค้า) ให้คนที่ไฮไลต์อยู่
+        // เช็คทั้ง e.key และ e.code เผื่อกรณีใดกรณีหนึ่งไม่ตรง แล้ว preventDefault เสมอ
+        // กันไม่ให้ "/" หลุดไปพิมพ์ในช่องค้นหา ไม่ว่าจะมีคนไฮไลต์อยู่จริงหรือเปล่าก็ตาม
+        e.preventDefault();
+        if (highlightedIndex >= 0 && sortedMembers[highlightedIndex]) {
+          const m = sortedMembers[highlightedIndex];
+          if (!isReadOnly && m.status !== 'paid') setPosTarget(m);
+        }
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [bulkCheckoutInfo, selectedMemberId, posTarget, treatStep, settingsOpen, sortedMembers, onImportLine, highlightedIndex, isReadOnly]);
+
+  // Reset the highlighted row whenever the visible list changes (new search/filter)
+  useEffect(() => {
+    setHighlightedIndex(-1);
+  }, [dbSearch, statusFilter]);
+
+  // Keep the highlighted row scrolled into view
+  useEffect(() => {
+    if (highlightedIndex >= 0) rowRefs.current[highlightedIndex]?.scrollIntoView({ block: 'nearest' });
+  }, [highlightedIndex]);
 
   const handleSort = (key: 'name' | 'shuttles' | 'balance' | 'games') => {
     setSortConfig(prev => {
@@ -549,7 +722,42 @@ export function DashboardTab({
       {/* POS modal for manual charging from dashboard */}
       <AnimatePresence>
         {posTarget && (
-          <POSModal member={posTarget} snacks={snacks} onAddSnack={onAddSnack} onClose={() => setPosTarget(null)} />
+          <POSModal
+            member={posTarget}
+            snacks={snacks}
+            onAddSnack={onAddSnack}
+            treatFor={treatRecipient}
+            onClearTreat={() => setTreatRecipient(null)}
+            onClose={() => { setPosTarget(null); setTreatRecipient(null); }}
+          />
+        )}
+      </AnimatePresence>
+
+      {/* "เสียน้ำให้เพื่อน" — เลือกคนจ่าย (A) ก่อน แล้วเลือกคนรับ (B) แล้วเปิด POS ให้ A ตามปกติ */}
+      <AnimatePresence>
+        {treatStep === 'payer' && (
+          <TreatMemberPicker
+            title="เสียน้ำให้เพื่อน"
+            subtitle="ใครจะเป็นคนจ่าย?"
+            members={todayPlayers}
+            onClose={() => setTreatStep(null)}
+            onSelect={(payer) => { setTreatPayer(payer); setTreatStep('recipient'); }}
+          />
+        )}
+        {treatStep === 'recipient' && treatPayer && (
+          <TreatMemberPicker
+            title="เสียน้ำให้เพื่อน"
+            subtitle={`${treatPayer.name} จะเลี้ยงใคร?`}
+            members={todayPlayers}
+            excludeId={treatPayer.id}
+            onClose={() => { setTreatStep(null); setTreatPayer(null); }}
+            onSelect={(recipient) => {
+              setTreatRecipient(recipient);
+              setPosTarget(treatPayer);
+              setTreatStep(null);
+              setTreatPayer(null);
+            }}
+          />
         )}
       </AnimatePresence>
 
@@ -577,6 +785,9 @@ export function DashboardTab({
         <div className="px-6 py-4 border-b border-on-surface/5 flex flex-col md:flex-row md:items-center justify-between gap-4">
           <div className="flex items-center gap-4">
             <h2 className="font-headline font-black text-xl">ลูกค้าที่เล่นวันนี้</h2>
+            <span className="hidden lg:inline text-[11px] font-semibold text-on-surface/30">
+              ↑↓ เลื่อน • Enter ดูข้อมูล • / ขายของ
+            </span>
             <div className="h-5 w-[2px] bg-on-surface/5 hidden md:block" />
             {isSyncing && (
               <div className="flex items-center gap-1.5 px-2 py-1 bg-primary/5 rounded-lg">
@@ -589,16 +800,29 @@ export function DashboardTab({
               className="flex items-center gap-2 bg-primary text-white px-4 py-2 rounded-xl font-bold text-sm shadow-lg shadow-primary/20 hover:scale-105 active:scale-95 transition-all"
             >
               <FileText size={14} /> ลงชื่อวันนี้ (ก๊อปรายชื่อไลน์)
+              <span className="text-[10px] font-bold px-1.5 py-0.5 rounded-md border border-white/30 text-white/80">+</span>
             </button>
+            {!isReadOnly && (
+              <button
+                onClick={() => setTreatStep('payer')}
+                disabled={todayPlayers.length < 2}
+                className="flex items-center gap-2 bg-orange-500 text-white px-4 py-2 rounded-xl font-bold text-sm shadow-lg shadow-orange-500/20 hover:scale-105 active:scale-95 transition-all disabled:opacity-40 disabled:scale-100 disabled:cursor-not-allowed"
+                title={todayPlayers.length < 2 ? "ต้องมีคนมาตีอย่างน้อย 2 คนก่อน" : "เลือกคนจ่ายแล้วเลือกคนรับ"}
+              >
+                <Gift size={14} /> เสียน้ำให้เพื่อน
+              </button>
+            )}
           </div>
           <div className="flex flex-col md:flex-row items-start md:items-center gap-3">
             <div className="relative group flex-1 w-48">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface/30 group-focus-within:text-primary transition-colors" size={14} />
               <input
+                ref={searchInputRef}
                 type="text"
-                placeholder="ค้นหา..."
+                placeholder="ค้นหา... (spacebar)"
                 value={dbSearch}
                 onChange={e => setDbSearch(e.target.value)}
+                onKeyDown={e => { if (e.key === ' ') e.stopPropagation(); }}
                 className="w-full pl-9 pr-4 py-2 bg-background border-none rounded-xl text-sm font-semibold focus:ring-2 focus:ring-primary/20 outline-none shadow-sm transition-all"
               />
             </div>
@@ -705,15 +929,22 @@ export function DashboardTab({
                 )}
               </div>
             </div>
-          ) : sortedMembers.map(m => {
+          ) : sortedMembers.map((m, idx) => {
             const isSettled = m.status === 'paid';
+            // isHighlighted = คนที่เลือกด้วยคีย์บอร์ด (ลูกศร) เท่านั้น ไม่ผูกกับเมาส์ hover อีกต่อไป
+            // ส่วน hover:/group-hover: ด้านล่างคือ feedback ปกติของเมาส์ แยกกันคนละเรื่อง ไม่ทับกัน
+            const isHighlighted = idx === highlightedIndex;
             return (
               <div
                 key={m.id}
-                onClick={() => setSelectedMember(m)}
+                ref={el => { rowRefs.current[idx] = el; }}
+                onClick={() => setSelectedMemberId(m.id)}
                 className={cn(
-                  "w-full grid grid-cols-12 gap-3 md:gap-4 px-6 py-5 md:py-6 transition-all text-left group items-center border-none cursor-pointer",
-                  isSettled ? "bg-green-100/30 hover:bg-green-100/50" : "hover:bg-primary/5 bg-white"
+                  "w-full grid grid-cols-12 gap-3 md:gap-4 px-6 py-5 md:py-6 transition-all text-left group items-center cursor-pointer",
+                  isHighlighted ? "border-2 border-primary/40" : "border-2 border-transparent",
+                  isSettled
+                    ? cn("hover:bg-green-100/50", isHighlighted ? "bg-green-100/50" : "bg-green-100/30")
+                    : cn("hover:bg-primary/5", isHighlighted ? "bg-primary/5" : "bg-white")
                 )}
               >
                 {/* Name + rank */}
@@ -730,7 +961,7 @@ export function DashboardTab({
                     />
                   )}
                   <div className="relative group/rank shrink-0">
-                    <div className={cn('w-10 h-10 rounded-xl flex items-center justify-center font-black text-sm shadow-sm transition-transform group-hover:scale-105', RANK_COLORS[m.rank])}>
+                    <div className={cn('w-10 h-10 rounded-xl flex items-center justify-center font-black text-sm shadow-sm transition-transform group-hover:scale-105', isHighlighted && 'scale-105', RANK_COLORS[m.rank])}>
                       {m.rank}
                     </div>
                     {!isReadOnly && (
@@ -750,7 +981,7 @@ export function DashboardTab({
                   </div>
                   <div className="min-w-0 flex-1">
                     <div className="flex flex-col gap-0.5">
-                      <p className={cn("font-bold text-sm truncate transition-colors", isSettled ? "text-green-700" : "group-hover:text-primary")}>
+                      <p className={cn("font-bold text-sm truncate transition-colors", isSettled ? "text-green-700" : cn("group-hover:text-primary", isHighlighted && "text-primary"))}>
                         {m.name}
                       </p>
                       {m.paidByName && (
@@ -836,7 +1067,7 @@ export function DashboardTab({
                       {!isReadOnly && (
                         <button
                           onClick={(e) => { e.stopPropagation(); onRemove(m.id); }}
-                          className="opacity-0 group-hover:opacity-100 p-1.5 text-on-surface/20 hover:text-error hover:bg-error/10 rounded-lg transition-all"
+                          className={cn("p-1.5 text-on-surface/20 hover:text-error hover:bg-error/10 rounded-lg transition-all opacity-0 group-hover:opacity-100", isHighlighted && "opacity-100")}
                           title="ลบออกจากเซสชัน"
                         >
                           <Trash2 size={16} />
@@ -876,7 +1107,7 @@ export function DashboardTab({
                 onClick={() => {
                   const mainMember = filteredMembers.find(m => m.id === checkedIds[0]);
                   if (mainMember) {
-                    setBulkCheckout({ member: mainMember, others: checkedIds.slice(1) });
+                    setBulkCheckoutInfo({ memberId: mainMember.id, others: checkedIds.slice(1) });
                   }
                 }}
                 className="bg-primary text-white px-8 py-4 rounded-2xl font-black text-sm shadow-2xl shadow-primary/40 flex items-center gap-3 hover:scale-105 active:scale-95 transition-all"
@@ -897,10 +1128,10 @@ export function DashboardTab({
 
       {/* ── Checkout Modal ── */}
       <AnimatePresence>
-        {(selectedMember || bulkCheckout) && (
+        {activeCheckoutMember && (
           <CheckoutModal
-            member={bulkCheckout ? bulkCheckout.member : selectedMember!}
-            initialOthers={bulkCheckout ? bulkCheckout.others : []}
+            member={activeCheckoutMember}
+            initialOthers={activeCheckoutOthers}
             gameHistory={currentGames}
             otherMembers={currentMembers}
             paymentHistory={currentPayments}
@@ -909,16 +1140,15 @@ export function DashboardTab({
             onUpdateSnackPrice={onUpdateSnackPrice}
             isReadOnly={isReadOnly}
             onPay={(amount, otherIds) => {
-              const mId = bulkCheckout ? bulkCheckout.member.id : selectedMember!.id;
-              onProcessPayment(mId, amount, 'Cash', otherIds);
-              setSelectedMember(null);
-              setBulkCheckout(null);
+              onProcessPayment(activeCheckoutMember.id, amount, 'Cash', otherIds);
+              setSelectedMemberId(null);
+              setBulkCheckoutInfo(null);
               setCheckedIds([]);
             }}
             onReOpen={onReOpen}
             onClose={() => {
-              setSelectedMember(null);
-              setBulkCheckout(null);
+              setSelectedMemberId(null);
+              setBulkCheckoutInfo(null);
             }}
           />
         )}

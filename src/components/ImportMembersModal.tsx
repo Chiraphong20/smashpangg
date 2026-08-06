@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { X, FileText, UserPlus, Trash2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
@@ -166,6 +166,27 @@ export function ImportMembersModal({ open, onClose, onImport, rankMemory, existi
     onClose();
   };
 
+  // Esc closes, Enter imports (once on the confirm step) — a window listener so this still
+  // works after the textarea unmounts and focus falls back to <body> (a plain onKeyDown on the
+  // modal div would miss that Enter press, since body isn't a descendant of the modal container).
+  useEffect(() => {
+    if (!open) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        handleClose();
+        return;
+      }
+      if (e.key === 'Enter' && step === 'confirm' && parsed.length > 0) {
+        e.preventDefault();
+        handleImport();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, step, parsed]);
+
   if (!open) return null;
 
   return (
@@ -175,12 +196,6 @@ export function ImportMembersModal({ open, onClose, onImport, rankMemory, existi
       <motion.div initial={{ scale: 0.95, opacity: 0, y: 10 }} animate={{ scale: 1, opacity: 1, y: 0 }}
         exit={{ scale: 0.95, opacity: 0 }}
         onClick={e => e.stopPropagation()}
-        onKeyDown={e => {
-          if (e.key === 'Enter' && step === 'confirm' && parsed.length > 0) {
-            handleImport();
-          }
-        }}
-        tabIndex={0}
         className="bg-white rounded-[2rem] w-full max-w-2xl shadow-2xl relative z-10 flex flex-col max-h-[90vh] outline-none">
 
         {/* Header */}
@@ -233,14 +248,19 @@ export function ImportMembersModal({ open, onClose, onImport, rankMemory, existi
                 value={text}
                 onChange={e => setText(e.target.value)}
                 onKeyDown={e => {
-                  if ((e.ctrlKey || e.metaKey) && e.key === 'Enter' && text.trim()) {
-                    handleParse();
+                  // Enter วิเคราะห์รายชื่อทันที, Shift+Enter ขึ้นบรรทัดใหม่ (สำหรับแก้ไข/พิมพ์เพิ่มเอง)
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault();
+                    if (text.trim()) handleParse();
                   }
                 }}
                 placeholder={mode === 'line' ? 'ก๊อปปี้รายชื่อจากไลน์มาวางที่นี่...' : 'วางชื่อและระดับมือ...'}
                 className="w-full h-72 px-4 py-3 bg-background rounded-2xl text-sm font-mono focus:outline-none focus:ring-2 focus:ring-primary/20 resize-none"
                 autoFocus
               />
+              <p className="text-[11px] text-on-surface/30 font-semibold px-1">
+                กด Enter เพื่อวิเคราะห์รายชื่อ • Shift+Enter เพื่อขึ้นบรรทัดใหม่
+              </p>
             </>
           ) : (
             <div className="space-y-2">

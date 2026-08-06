@@ -3,6 +3,7 @@ import { X } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
 import { Rank, RANKS, RANK_COLORS, RANK_LEVEL_LABELS } from '../types';
+import { useModalHotkeys } from '../hooks/useModalHotkeys';
 
 interface Props {
   open: boolean;
@@ -15,6 +16,9 @@ interface Props {
 export function AddMemberModal({ open, onClose, onAdd, existingNames, rankMemory = {} }: Props) {
   const [name, setName] = useState('');
   const [rank, setRank] = useState<Rank>('P');
+
+  // Enter already submits natively via the focused text input; add Esc to close.
+  useModalHotkeys({ onClose, enabled: open });
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();

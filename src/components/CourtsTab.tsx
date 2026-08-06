@@ -5,6 +5,7 @@ import { cn } from '../lib/utils';
 import { Member, Court, Snack, GameRecord, Rank, RANKS, RANK_WEIGHTS, RANK_COLORS, RANK_LEVEL_LABELS, CourtQueueSlot, QueuePlayer } from '../types';
 import { format } from 'date-fns';
 import { POSModal } from './POSModal';
+import { useModalHotkeys } from '../hooks/useModalHotkeys';
 
 let draggingPlayerId: string | null = null;
 
@@ -45,13 +46,28 @@ function PlayerPicker({ members, currentPlayerId, onSelect, onClose, position }:
   position: 'top' | 'bottom';
 }) {
   const [q, setQ] = useState('');
+  const [highlightedIndex, setHighlightedIndex] = useState(0);
   const ref = useRef<HTMLInputElement>(null);
+  const itemRefs = useRef<(HTMLButtonElement | null)[]>([]);
   useEffect(() => { ref.current?.focus(); }, []);
 
   const list = members.filter(m =>
     (m.status === 'waiting' || m.id === currentPlayerId) &&
     m.name.toLowerCase().includes(q.toLowerCase())
   );
+
+  // "นำออกจากสล็อต" counts as nav item 0 when it's shown, so arrow/Enter can reach it too
+  const navCount = (currentPlayerId ? 1 : 0) + list.length;
+  useEffect(() => { setHighlightedIndex(0); }, [q]);
+  // เลื่อนรายการตามไปหาแถวที่ไฮไลต์อยู่เสมอ กันกรณีลูกศรเลื่อนไปแถวที่ยังไม่โผล่ในจอ
+  useEffect(() => {
+    itemRefs.current[highlightedIndex]?.scrollIntoView({ block: 'nearest' });
+  }, [highlightedIndex]);
+  const selectHighlighted = () => {
+    if (currentPlayerId && highlightedIndex === 0) { onSelect(null); onClose(); return; }
+    const m = list[highlightedIndex - (currentPlayerId ? 1 : 0)];
+    if (m) { onSelect(m.id); onClose(); }
+  };
 
   return (
     <motion.div
@@ -69,20 +85,34 @@ function PlayerPicker({ members, currentPlayerId, onSelect, onClose, position }:
         <div className="relative">
           <Search size={15} className="absolute left-3 top-1/2 -translate-y-1/2 text-on-surface/30" />
           <input ref={ref} value={q} onChange={e => setQ(e.target.value)} placeholder="ค้นหาชื่อ..."
+            onKeyDown={e => {
+              if (e.key === 'Escape') { e.stopPropagation(); onClose(); return; }
+              if (e.key === 'ArrowDown') { e.preventDefault(); e.stopPropagation(); setHighlightedIndex(i => Math.min(i + 1, navCount - 1)); return; }
+              if (e.key === 'ArrowUp') { e.preventDefault(); e.stopPropagation(); setHighlightedIndex(i => Math.max(i - 1, 0)); return; }
+              if (e.key !== 'Enter') return;
+              e.preventDefault(); e.stopPropagation();
+              selectHighlighted();
+            }}
             className="w-full pl-9 pr-3 py-2.5 bg-background rounded-xl text-sm font-bold focus:outline-none focus:ring-2 focus:ring-primary/20" />
         </div>
       </div>
       <div className="max-h-60 overflow-y-auto">
         {currentPlayerId && (
-          <button onClick={() => { onSelect(null); onClose(); }}
-            className="w-full flex items-center gap-3 px-4 py-3 hover:bg-error/5 text-error transition-colors">
+          <button ref={el => { itemRefs.current[0] = el; }} onClick={() => { onSelect(null); onClose(); }}
+            onMouseEnter={() => setHighlightedIndex(0)}
+            className={cn('w-full flex items-center gap-3 px-4 py-3 hover:bg-error/5 text-error transition-colors', highlightedIndex === 0 && 'bg-error/5 ring-2 ring-inset ring-error/20')}>
             <X size={15} /><span className="text-sm font-black">นำออกจากสล็อต</span>
           </button>
         )}
         {list.length === 0 && <p className="text-center py-6 text-sm text-on-surface/30 font-bold">ไม่พบผู้เล่น</p>}
-        {list.map(m => (
-          <button key={m.id} onClick={() => { onSelect(m.id); onClose(); }}
-            className={cn('w-full flex items-center gap-3 px-4 py-3 hover:bg-primary/5 transition-colors', m.id === currentPlayerId ? 'bg-primary/5' : '')}>
+        {list.map((m, i) => {
+          const navIndex = i + (currentPlayerId ? 1 : 0);
+          return (
+          <button key={m.id} ref={el => { itemRefs.current[navIndex] = el; }} onClick={() => { onSelect(m.id); onClose(); }}
+            onMouseEnter={() => setHighlightedIndex(navIndex)}
+            className={cn('w-full flex items-center gap-3 px-4 py-3 hover:bg-primary/5 transition-colors',
+              m.id === currentPlayerId ? 'bg-primary/5' : '',
+              navIndex === highlightedIndex && 'bg-primary/5 ring-2 ring-inset ring-primary/20')}>
             <div className={cn('w-10 h-10 rounded-xl flex items-center justify-center font-black text-sm shrink-0', RANK_COLORS[m.rank])}>{m.rank}</div>
             <div className="flex-1 text-left min-w-0">
               <p className="font-bold truncate">{m.name}</p>
@@ -92,14 +122,15 @@ function PlayerPicker({ members, currentPlayerId, onSelect, onClose, position }:
             </div>
             {m.id === currentPlayerId && <Check size={15} className="text-primary shrink-0" />}
           </button>
-        ))}
+          );
+        })}
       </div>
     </motion.div>
   );
 }
 
 // ── Slot Card ────────────────────────────────────────────────────────────────
-function SlotCard({ slotIndex, courtId, playerId, team, members, onSelect, locked }: {
+function SlotCard({ slotIndex, courtId, playerId, team, members, onSelect, locked, openRequest }: {
   key?: number;
   slotIndex: number;
   courtId: string;
@@ -108,11 +139,18 @@ function SlotCard({ slotIndex, courtId, playerId, team, members, onSelect, locke
   members: Member[];
   onSelect: (id: string | null) => void;
   locked: boolean;
+  /** Bumps (any changed value) to force this slot's picker open — used by the "1-4" keyboard shortcut. */
+  openRequest?: number | null;
 }) {
   const [open, setOpen] = useState(false);
   const [dragOver, setDragOver] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
   const player = members.find(m => m.id === playerId) ?? null;
+
+  useEffect(() => {
+    if (!locked && openRequest != null) setOpen(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openRequest]);
 
   useEffect(() => {
     if (!open) return;
@@ -169,6 +207,12 @@ function SlotCard({ slotIndex, courtId, playerId, team, members, onSelect, locke
                 : 'border-dashed border-white/30 bg-white/10 hover:bg-white/20 hover:border-white/60'
         )}
       >
+        {/* Slot number badge — matches the "1-4" keyboard shortcut */}
+        {!locked && (
+          <div className="absolute -top-2 -left-2 w-6 h-6 bg-on-surface/70 text-white rounded-full flex items-center justify-center z-20 shadow-lg border-2 border-white text-[11px] font-black">
+            {slotIndex + 1}
+          </div>
+        )}
         {/* X remove button */}
         {!locked && player && (
           <button
@@ -294,6 +338,12 @@ function PlayerSearchPicker({ members, selected, onSelect, placeholder, excludeI
               autoFocus
               value={q}
               onChange={e => setQ(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Escape') { e.stopPropagation(); setOpen(false); return; }
+                if (e.key !== 'Enter') return;
+                e.stopPropagation();
+                if (filtered.length === 1) { onSelect(filtered[0]); setOpen(false); setQ(''); }
+              }}
               placeholder="ค้นหาชื่อ..."
               className="w-full px-3 py-1.5 bg-background rounded-xl text-sm font-semibold focus:outline-none"
             />
@@ -363,6 +413,8 @@ function QueueSlotEditor({ members, slot, onSave, onClose }: {
       note: note.trim() || undefined,
     });
   };
+
+  useModalHotkeys({ onClose, onSubmit: handleSave });
 
   return (
     <div className="fixed inset-0 z-[250] flex items-center justify-center p-4">
@@ -557,6 +609,57 @@ export function CourtsTab({
   const teamA = selected ? [0, 1].map(i => members.find(m => m.id === selected.players[i]) ?? null) : [];
   const teamB = selected ? [2, 3].map(i => members.find(m => m.id === selected.players[i]) ?? null) : [];
 
+  // Keyboard shortcuts: ←/→ switch court tabs, 1-4 open that slot's player picker, Enter starts
+  // the game once 4/4 are filled, and (while a game is active) pressing Enter twice quickly ends it.
+  const [openSlotRequest, setOpenSlotRequest] = useState<{ slot: number; nonce: number } | null>(null);
+  const [endGamePending, setEndGamePending] = useState(false);
+  const lastEnterRef = useRef(0);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (!selected || posTarget || editingSlot) return;
+      const active = document.activeElement as HTMLElement | null;
+      const isTyping = !!active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.tagName === 'SELECT');
+      if (isTyping) return;
+
+      if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+        e.preventDefault();
+        const idx = courts.findIndex(c => c.id === selected.id);
+        if (idx === -1) return;
+        const nextIdx = e.key === 'ArrowRight' ? (idx + 1) % courts.length : (idx - 1 + courts.length) % courts.length;
+        setSelectedCourtId(courts[nextIdx].id);
+        return;
+      }
+
+      if (['1', '2', '3', '4'].includes(e.key)) {
+        e.preventDefault();
+        setOpenSlotRequest({ slot: Number(e.key) - 1, nonce: Date.now() });
+        return;
+      }
+
+      if (e.key !== 'Enter') return;
+      e.preventDefault();
+
+      if (isActive) {
+        // Require a quick double-tap of Enter to end the game (avoid accidental taps)
+        const now = Date.now();
+        if (now - lastEnterRef.current < 600) {
+          lastEnterRef.current = 0;
+          setEndGamePending(false);
+          onResetCourt(selected.id);
+        } else {
+          lastEnterRef.current = now;
+          setEndGamePending(true);
+          setTimeout(() => setEndGamePending(false), 600);
+        }
+      } else if (filledCount === 4) {
+        onStartGame(selected.id);
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selected, isActive, filledCount, posTarget, editingSlot, onResetCourt, onStartGame, courts]);
+
   return (
     <div className="space-y-5">
       {/* Global POS modal */}
@@ -609,6 +712,10 @@ export function CourtsTab({
           className="flex items-center gap-2 px-5 py-3.5 rounded-2xl font-black text-base transition-all border-2 border-dashed border-on-surface/10 text-on-surface/40 hover:border-primary/50 hover:text-primary hover:bg-primary/5">
           <Plus size={18} /> เพิ่มคอร์ด
         </button>
+
+        <span className="hidden lg:flex items-center text-xs font-semibold text-on-surface/30 ml-1">
+          ←/→ สลับคอร์ด • 1-4 เพิ่มผู้เล่น • Enter เริ่ม/จบเกม
+        </span>
       </div>
 
       {selected ? (
@@ -764,8 +871,9 @@ export function CourtsTab({
 
                   {isActive ? (
                     <button onClick={() => onResetCourt(selected.id)}
-                      className="flex items-center gap-2 bg-red-500 text-white px-5 py-2.5 rounded-xl font-bold text-sm shadow-lg hover:bg-red-400 hover:scale-105 transition-all">
-                      <Check size={16} /> จบเกม
+                      className={cn('flex items-center gap-2 text-white px-5 py-2.5 rounded-xl font-bold text-sm shadow-lg transition-all',
+                        endGamePending ? 'bg-red-400 scale-105 animate-pulse' : 'bg-red-500 hover:bg-red-400 hover:scale-105')}>
+                      <Check size={16} /> {endGamePending ? 'กด Enter อีกครั้งเพื่อจบเกม' : 'จบเกม'}
                     </button>
                   ) : (
                     <>
@@ -782,9 +890,9 @@ export function CourtsTab({
                             ? 'bg-green-400 text-green-900 hover:bg-green-300 hover:scale-105'
                             : 'bg-white/10 text-white/30 cursor-not-allowed border border-white/10'
                         )}>
-                        ▶ เริ่มเกม {filledCount !== 4 && `(${filledCount}/4)`}
+                        ▶ เริ่มเกม {filledCount === 4 ? '(Enter)' : `(${filledCount}/4)`}
                       </button>
-                      <button onClick={() => onDeleteCourt(selected.id)}
+                      <button onClick={() => { if (confirm(`ยืนยันการลบ "${selected.name}"?`)) onDeleteCourt(selected.id); }}
                         className="text-white/30 hover:text-red-400 p-2.5 rounded-xl hover:bg-red-400/10 transition-all">
                         <Trash2 size={20} />
                       </button>
@@ -828,13 +936,15 @@ export function CourtsTab({
                       <div className="grid grid-cols-2 gap-4 p-6 pb-10">
                         {[0, 1].map(i => (
                           <SlotCard key={i} slotIndex={i} courtId={selected.id} playerId={selected.players[i]} team="A"
-                            members={members} onSelect={id => handleSelect(i, id)} locked={false} />
+                            members={members} onSelect={id => handleSelect(i, id)} locked={false}
+                            openRequest={openSlotRequest?.slot === i ? openSlotRequest.nonce : null} />
                         ))}
                       </div>
                       <div className="grid grid-cols-2 gap-4 p-6 pt-10">
                         {[2, 3].map(i => (
                           <SlotCard key={i} slotIndex={i} courtId={selected.id} playerId={selected.players[i]} team="B"
-                            members={members} onSelect={id => handleSelect(i, id)} locked={false} />
+                            members={members} onSelect={id => handleSelect(i, id)} locked={false}
+                            openRequest={openSlotRequest?.slot === i ? openSlotRequest.nonce : null} />
                         ))}
                       </div>
                     </div>

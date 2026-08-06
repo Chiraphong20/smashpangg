@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { X, Plus, Minus, Search, ShoppingCart, User, CreditCard } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
@@ -9,6 +9,11 @@ interface Props {
   snacks: Snack[];
   onAddSnack: (memberId: string, snacks: Snack[]) => void;
   onClose: () => void;
+  /** ถ้าตั้งไว้ = โหมด "เสียน้ำให้เพื่อน" — member (คนจ่าย) จะรับผิดชอบค่าใช้จ่าย
+   *  แต่ชื่อสินค้าที่ซื้อจะติดข้อความว่าให้ใครไปด้วย */
+  treatFor?: Member | null;
+  /** ยกเลิกโหมด "เสียน้ำให้เพื่อน" โดยไม่ปิด modal (กลับไปซื้อให้ตัวเองตามปกติ) */
+  onClearTreat?: () => void;
 }
 
 interface CartItem {
@@ -16,7 +21,7 @@ interface CartItem {
   quantity: number;
 }
 
-export function POSModal({ member, snacks, onAddSnack, onClose }: Props) {
+export function POSModal({ member, snacks, onAddSnack, onClose, treatFor, onClearTreat }: Props) {
   const [search, setSearch] = useState('');
   const [cart, setCart] = useState<CartItem[]>([]);
   const [customPrice, setCustomPrice] = useState('');
@@ -75,12 +80,36 @@ export function POSModal({ member, snacks, onAddSnack, onClose }: Props) {
     const flatSnacks: Snack[] = [];
     cart.forEach(item => {
       for (let i = 0; i < item.quantity; i++) {
-        flatSnacks.push(item.snack);
+        // โหมด "เสียน้ำให้เพื่อน": คนจ่าย (member) ยังเป็นคนรับผิดชอบยอดเหมือนเดิม
+        // แค่ติดข้อความต่อท้ายชื่อสินค้าไว้ว่าซื้อให้ใคร เพื่อให้เห็นในประวัติ
+        const snackEntry = treatFor ? { ...item.snack, name: `${item.snack.name} (ให้ ${treatFor.name})` } : item.snack;
+        flatSnacks.push(snackEntry);
       }
     });
     onAddSnack(member.id, flatSnacks);
     onClose();
   };
+
+  // Esc closes, Enter ยืนยัน "เรียบร้อย" ทันที (กด 2 ครั้งใช้เฉพาะปุ่ม "จบเกม" ในหน้าคอร์ด) — ใช้
+  // window listener เพราะ modal นี้ไม่มี autoFocus ตอนเปิด (เปิดผ่านคลิก/คีย์ลัดจากนอก modal)
+  // โฟกัสเลยอาจยังค้างอยู่นอก modal ทำให้ onKeyDown ที่ผูกกับตัว modal โดยตรงไม่ได้รับ event เลย
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        onClose();
+        return;
+      }
+      if (e.key !== 'Enter' || cart.length === 0) return;
+      // หมายเหตุ: ช่องค้นหาสินค้า/คีย์ราคาเอง/ชื่อ มี e.stopPropagation() ของตัวเองอยู่แล้วตอนกด Enter
+      // (ดูช่อง input ด้านล่าง) event ที่มาถึงตรงนี้จึงไม่ใช่จากช่องพวกนั้น
+      e.preventDefault();
+      handleFinish();
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cart]);
 
   return (
     <div className="fixed inset-0 z-[150] flex items-center justify-center p-0 md:p-4">
@@ -92,12 +121,6 @@ export function POSModal({ member, snacks, onAddSnack, onClose }: Props) {
         animate={{ scale: 1, opacity: 1, y: 0 }} 
         exit={{ scale: 0.95, opacity: 0, y: 20 }}
         onClick={e => e.stopPropagation()}
-        onKeyDown={e => {
-          if (e.key === 'Enter' && cart.length > 0) {
-            handleFinish();
-          }
-        }}
-        tabIndex={0}
         className="bg-background w-full max-w-6xl h-full md:h-[85vh] rounded-none md:rounded-[2.5rem] shadow-2xl relative z-10 flex flex-col md:flex-row overflow-hidden border border-white/20 outline-none">
         
         {/* Floating Close Button for Desktop */}
@@ -124,11 +147,17 @@ export function POSModal({ member, snacks, onAddSnack, onClose }: Props) {
             
             <div className="relative w-64 group hidden sm:block">
               <Search size={18} className="absolute left-4 top-1/2 -translate-y-1/2 text-on-surface/20 group-focus-within:text-primary transition-colors" />
-              <input 
+              <input
                 type="text"
                 placeholder="ค้นหาชื่อสินค้า..."
                 value={search}
                 onChange={e => setSearch(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key !== 'Enter') return;
+                  e.stopPropagation();
+                  // Enter while searching adds the (single) matching product instead of finishing checkout
+                  if (filteredSnacks.length === 1) addToCart(filteredSnacks[0]);
+                }}
                 className="w-full pl-12 pr-4 py-3 bg-on-surface/5 border-none rounded-2xl font-bold text-sm focus:ring-4 focus:ring-primary/10 transition-all outline-none"
               />
             </div>
@@ -187,6 +216,19 @@ export function POSModal({ member, snacks, onAddSnack, onClose }: Props) {
                 </div>
               </div>
             </div>
+            {treatFor && (
+              <div className="mt-3 flex items-center gap-2 bg-orange-500/10 border border-orange-500/20 rounded-2xl px-3 py-2">
+                <span className="text-lg shrink-0">🎁</span>
+                <p className="flex-1 text-xs font-bold text-orange-600 leading-tight">
+                  กำลังเสียน้ำให้ <span className="font-black">{treatFor.name}</span> — {member.name} จ่ายให้
+                </p>
+                {onClearTreat && (
+                  <button onClick={onClearTreat} className="text-orange-500/60 hover:text-orange-600 shrink-0" title="ยกเลิก เปลี่ยนเป็นซื้อให้ตัวเอง">
+                    <X size={14} />
+                  </button>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Cart Items */}
@@ -245,17 +287,17 @@ export function POSModal({ member, snacks, onAddSnack, onClose }: Props) {
           <div className="p-4 bg-primary/5 mx-4 mb-2 rounded-3xl border-2 border-primary/10 space-y-3">
              <p className="text-[9px] font-black uppercase text-primary tracking-[0.2em] px-1">คีย์ราคาเอง / ส่วนลด</p>
              <div className="flex gap-2">
-                <input 
+                <input
                   type="text" value={customName} onChange={e => setCustomName(e.target.value)}
-                  onKeyDown={e => e.key === 'Enter' && addCustomToCart()}
+                  onKeyDown={e => { if (e.key === 'Enter') { e.stopPropagation(); addCustomToCart(); } }}
                   placeholder="ชื่อรายการ..."
                   className="flex-1 px-3 py-2.5 bg-white rounded-xl text-[11px] font-bold outline-none shadow-sm focus:ring-2 focus:ring-primary/20 transition-all"
                 />
                 <div className="w-24 relative">
                   <span className="absolute left-2.5 top-1/2 -translate-y-1/2 text-on-surface/20 font-black text-[11px]">฿</span>
-                  <input 
+                  <input
                     type="number" value={customPrice} onChange={e => setCustomPrice(e.target.value)}
-                    onKeyDown={e => e.key === 'Enter' && addCustomToCart()}
+                    onKeyDown={e => { if (e.key === 'Enter') { e.stopPropagation(); addCustomToCart(); } }}
                     placeholder="0.00"
                     className="w-full pl-6 pr-3 py-2.5 bg-white rounded-xl text-sm font-black outline-none shadow-sm focus:ring-2 focus:ring-primary/20 transition-all"
                   />
@@ -287,7 +329,7 @@ export function POSModal({ member, snacks, onAddSnack, onClose }: Props) {
                <button onClick={onClose} className="p-5 bg-background hover:bg-on-surface/5 text-on-surface/40 rounded-3xl transition-all flex items-center justify-center">
                  <X size={24} />
                </button>
-               <button 
+               <button
                 onClick={handleFinish}
                 disabled={cart.length === 0}
                 className="col-span-3 bg-primary text-white py-5 rounded-3xl font-headline font-black text-2xl uppercase tracking-widest shadow-2xl shadow-primary/30 hover:scale-[1.02] active:scale-95 transition-all disabled:opacity-40 disabled:scale-100 flex items-center justify-center gap-4">

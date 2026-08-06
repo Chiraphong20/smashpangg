@@ -5,6 +5,7 @@ import { format } from 'date-fns';
 import { th } from 'date-fns/locale';
 import { motion, AnimatePresence } from 'motion/react';
 import { cn } from '../lib/utils';
+import { useModalHotkeys } from '../hooks/useModalHotkeys';
 
 const API_BASE = import.meta.env.VITE_API_URL || '';
 
@@ -28,6 +29,8 @@ function EditGameModal({ game, members, onSave, onClose }: { game: GameRecord, m
   const [search, setSearch] = React.useState('');
 
   const filtered = members.filter(m => m.name.toLowerCase().includes(search.toLowerCase()));
+
+  useModalHotkeys({ onClose, onSubmit: () => { if (pids.length === 4) onSave(pids, shuttles); } });
 
   return (
     <div className="fixed inset-0 z-[300] flex items-center justify-center p-4">

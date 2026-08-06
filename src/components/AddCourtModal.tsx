@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { X, Trophy } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
+import { useModalHotkeys } from '../hooks/useModalHotkeys';
 
 interface Props {
   open: boolean;
@@ -18,6 +19,9 @@ export function AddCourtModal({ open, onClose, onAdd }: Props) {
     setName('');
     onClose();
   };
+
+  // Enter already submits natively via the focused text input; add Esc to close.
+  useModalHotkeys({ onClose, enabled: open });
 
   return (
     <AnimatePresence>
