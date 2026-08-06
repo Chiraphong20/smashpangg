@@ -534,7 +534,7 @@ export function DashboardTab({
   // แล้วเปิด modal ของคนที่ไฮไลต์อยู่ซ้อนขึ้นมาอีกอันจากการกด Enter ครั้งเดียวกัน
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key !== 'Enter' || bulkCheckoutInfo || selectedMemberId || posTarget || treatStep || settingsOpen) return;
+      if (e.key !== 'Enter' || e.repeat || bulkCheckoutInfo || selectedMemberId || posTarget || treatStep || settingsOpen) return;
 
       const active = document.activeElement as HTMLElement;
       // If user is focused on a text input, don't trigger (unless it's the search box or a checkbox)

@@ -637,7 +637,9 @@ export function CourtsTab({
         return;
       }
 
-      if (e.key !== 'Enter') return;
+      if (e.key !== 'Enter' || e.repeat) return;
+      // e.repeat กัน auto-repeat จากการกด Enter ค้าง — ไม่งั้นแค่ค้าง Enter ครั้งเดียวก็ทำให้
+      // เข้าเงื่อนไข "กดติดกัน 2 ครั้ง" ของปุ่มจบเกมด้านล่างได้โดยไม่ตั้งใจ
       e.preventDefault();
 
       if (isActive) {

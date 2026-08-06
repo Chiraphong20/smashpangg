@@ -28,6 +28,9 @@ export function useModalHotkeys({ onClose, onSubmit, enabled = true }: UseModalH
         return;
       }
       if (e.key === 'Enter' && onSubmit) {
+        // e.repeat กัน auto-repeat จากการกด Enter ค้าง — ป้องกัน onSubmit (มักมีผลกับเงิน/ข้อมูล
+        // จริง) ถูกยิงซ้ำโดยไม่ตั้งใจ เช่น ค้าง Enter ตอนเปิด modal พอดี แล้ว action ก็ทำงานทันที
+        if (e.repeat) return;
         const active = document.activeElement as HTMLElement | null;
         if (active?.tagName === 'TEXTAREA' && !(e.ctrlKey || e.metaKey)) return;
         e.preventDefault();

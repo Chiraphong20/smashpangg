@@ -177,7 +177,9 @@ export function ImportMembersModal({ open, onClose, onImport, rankMemory, existi
         handleClose();
         return;
       }
-      if (e.key === 'Enter' && step === 'confirm' && parsed.length > 0) {
+      if (e.key === 'Enter' && !e.repeat && step === 'confirm' && parsed.length > 0) {
+        // e.repeat กัน auto-repeat จากการกด Enter ค้าง — ไม่งั้น Enter ครั้งแรก (วิเคราะห์ →
+        // เปลี่ยนเป็นหน้ายืนยัน) กับตัวที่ยิงซ้ำจากการกดค้างจะมาติดกันจนเผลอกด "นำเข้า" ทันที
         e.preventDefault();
         handleImport();
       }
@@ -249,7 +251,8 @@ export function ImportMembersModal({ open, onClose, onImport, rankMemory, existi
                 onChange={e => setText(e.target.value)}
                 onKeyDown={e => {
                   // Enter วิเคราะห์รายชื่อทันที, Shift+Enter ขึ้นบรรทัดใหม่ (สำหรับแก้ไข/พิมพ์เพิ่มเอง)
-                  if (e.key === 'Enter' && !e.shiftKey) {
+                  // e.repeat กัน auto-repeat จากการกด Enter ค้าง (ดูคอมเมนต์ที่ window listener ด้านบน)
+                  if (e.key === 'Enter' && !e.shiftKey && !e.repeat) {
                     e.preventDefault();
                     if (text.trim()) handleParse();
                   }

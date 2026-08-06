@@ -100,7 +100,8 @@ export function POSModal({ member, snacks, onAddSnack, onClose, treatFor, onClea
         onClose();
         return;
       }
-      if (e.key !== 'Enter' || cart.length === 0) return;
+      if (e.key !== 'Enter' || e.repeat || cart.length === 0) return;
+      // e.repeat กัน Enter ค้างยิงซ้ำ (จะได้ไม่เผลอกด "เรียบร้อย" ซ้ำสองจากการกดค้างครั้งเดียว)
       // หมายเหตุ: ช่องค้นหาสินค้า/คีย์ราคาเอง/ชื่อ มี e.stopPropagation() ของตัวเองอยู่แล้วตอนกด Enter
       // (ดูช่อง input ด้านล่าง) event ที่มาถึงตรงนี้จึงไม่ใช่จากช่องพวกนั้น
       e.preventDefault();
