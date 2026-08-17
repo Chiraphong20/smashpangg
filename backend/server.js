@@ -42,6 +42,21 @@ app.get('/api/health', (req, res) => {
       console.log('ℹ️  columns already exist');
     }
   }
+
+  // state_meta: version counter used to detect stale writes to system_states
+  // (ป้องกันเครื่อง/แท็บเก่าที่ค้างไว้หลายวัน save ทับข้อมูลใหม่ทิ้งแบบเงียบๆ)
+  try {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS state_meta (
+        id INT PRIMARY KEY,
+        version BIGINT NOT NULL DEFAULT 0
+      )
+    `);
+    await pool.query(`INSERT IGNORE INTO state_meta (id, version) VALUES (1, 0)`);
+    console.log('✅ DB migration: state_meta ensured');
+  } catch (e) {
+    console.error('❌ Failed to ensure state_meta table:', e.message);
+  }
 })();
 
 // PULL MASTER DATA
@@ -510,6 +525,7 @@ app.get('/api/session', async (req, res) => {
 app.get('/api/state', async (req, res) => {
   try {
     const [states] = await pool.query('SELECT * FROM system_states');
+    const [meta] = await pool.query('SELECT version FROM state_meta WHERE id = 1');
     const result = {};
     states.forEach(row => {
       try {
@@ -518,6 +534,8 @@ app.get('/api/state', async (req, res) => {
         result[row.state_key] = row.state_value;
       }
     });
+    // เวอร์ชันปัจจุบันของข้อมูลใน DB — client เก็บค่านี้ไว้เทียบตอน save
+    result._version = meta[0]?.version ?? 0;
     res.json(result);
   } catch (err) {
     console.error(err);
@@ -526,20 +544,40 @@ app.get('/api/state', async (req, res) => {
 });
 
 // SAVE FULL LIVE STATE (Replaces localStorage.setItem)
+// ใช้ optimistic concurrency: client ต้องแนบ _version ที่โหลดมาล่าสุดมาด้วย
+// ถ้าเลขไม่ตรงกับ DB (แปลว่ามีเครื่องอื่น save ทับไปแล้วหลังจากนั้น) จะปฏิเสธ
+// การ save นี้ทันที (409) แทนที่จะปล่อยให้ข้อมูลเก่าทับข้อมูลใหม่แบบเงียบๆ
 app.post('/api/state', async (req, res) => {
-  const stateObj = req.body;
+  const { _version, ...stateObj } = req.body;
   const conn = await pool.getConnection();
 
   try {
     await conn.beginTransaction();
+
+    const [metaRows] = await conn.query('SELECT version FROM state_meta WHERE id = 1 FOR UPDATE');
+    const currentVersion = metaRows[0]?.version ?? 0;
+
+    if (typeof _version === 'number' && _version !== currentVersion) {
+      await conn.rollback();
+      return res.status(409).json({
+        error: 'stale_write',
+        message: 'มีการบันทึกข้อมูลจากเครื่อง/แท็บอื่นไปแล้วหลังจากที่เครื่องนี้โหลดข้อมูลล่าสุด',
+        currentVersion
+      });
+    }
+
     for (const [key, value] of Object.entries(stateObj)) {
       await conn.query(
         'INSERT INTO system_states (state_key, state_value) VALUES (?, ?) ON DUPLICATE KEY UPDATE state_value = VALUES(state_value)',
         [key, JSON.stringify(value)]
       );
     }
+
+    const newVersion = currentVersion + 1;
+    await conn.query('UPDATE state_meta SET version = ? WHERE id = 1', [newVersion]);
+
     await conn.commit();
-    res.json({ success: true });
+    res.json({ success: true, version: newVersion });
   } catch (err) {
     await conn.rollback();
     console.error(err);

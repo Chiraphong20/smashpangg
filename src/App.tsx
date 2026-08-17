@@ -98,6 +98,7 @@ export default function App() {
 
         let loadedState: any = null;
         if (stateRes && stateRes.ok) loadedState = await stateRes.json();
+        if (typeof loadedState?._version === 'number') stateVersionRef.current = loadedState._version;
 
         let loadedMaster: any = null;
         if (masterRes && masterRes.ok) loadedMaster = await masterRes.json();
@@ -160,50 +161,86 @@ export default function App() {
     };
   }, [members, courts, gameHistory, paymentHistory, sessionHistory, rankMemory, courtFeePerPerson, shuttlePrice, snacks, sessionStartDate, courtQueues]);
 
+  // เวอร์ชันล่าสุดของข้อมูลที่เครื่องนี้รู้จัก (จาก DB) — ใช้กันเครื่อง/แท็บเก่า
+  // save ทับข้อมูลใหม่แบบเงียบๆ (root cause ของเคสข้อมูลวันที่ 15/08 หาย)
+  const stateVersionRef = useRef<number>(0);
+
+  // Save ขึ้น DB แบบรู้เวอร์ชัน: ถ้าเครื่องอื่น save ไปแล้วหลังจากที่เราโหลดข้อมูลล่าสุด
+  // (เซิร์ฟเวอร์ตอบ 409) แปลว่าข้อมูลในเครื่องนี้เก่ากว่าความจริงแล้ว ห้าม save ทับ
+  // ให้รีโหลดหน้าใหม่เพื่อดึงข้อมูลล่าสุดมาแทนทันที
+  const postState = async (body: Record<string, unknown>) => {
+    try {
+      const res = await fetch(`${API_BASE}/api/state`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...body, _version: stateVersionRef.current })
+      });
+      if (res.status === 409) {
+        console.warn('⚠️ มีการบันทึกข้อมูลจากเครื่อง/แท็บอื่นไปแล้ว — โหลดข้อมูลล่าสุดใหม่เพื่อกันข้อมูลชนกัน');
+        location.reload();
+        return;
+      }
+      if (res.ok) {
+        const data = await res.json();
+        if (typeof data.version === 'number') stateVersionRef.current = data.version;
+        setLastAutoSave(new Date());
+      }
+    } catch (err) {
+      console.warn('Failed to save state to DB:', err);
+    }
+  };
+
   // Auto-save every 2 minutes regardless of state changes
   useEffect(() => {
-    const interval = setInterval(async () => {
-      try {
-        await fetch(`${API_BASE}/api/state`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(autoSaveStateRef.current)
-        });
-        setLastAutoSave(new Date());
-      } catch (err) {
-        console.warn('Auto-save failed:', err);
-      }
+    const interval = setInterval(() => {
+      postState(autoSaveStateRef.current as Record<string, unknown>);
     }, 2 * 60 * 1000);
     return () => clearInterval(interval);
   }, []);
 
+  // เมื่อกลับมาเปิดแท็บ/โฟกัสหน้าต่างนี้อีกครั้ง (เช่น แท็บที่ค้างไว้หลายวัน)
+  // เช็คก่อนว่าข้อมูลในเครื่องนี้ตามทันเซิร์ฟเวอร์หรือยัง ถ้าตามไม่ทันให้รีโหลด
+  // ทันที ก่อนที่จะมีการ save ทับข้อมูลใหม่กว่าโดยไม่รู้ตัว
+  useEffect(() => {
+    const checkFreshness = async () => {
+      try {
+        const res = await fetch(`${API_BASE}/api/state`);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (typeof data._version === 'number' && data._version !== stateVersionRef.current) {
+          console.warn('⚠️ ข้อมูลในเครื่องนี้เก่ากว่าเซิร์ฟเวอร์ (มีการอัปเดตจากที่อื่น) กำลังโหลดข้อมูลล่าสุด...');
+          location.reload();
+        }
+      } catch {}
+    };
+    const onVisible = () => { if (document.visibilityState === 'visible') checkFreshness(); };
+    document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('focus', checkFreshness);
+    return () => {
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('focus', checkFreshness);
+    };
+  }, []);
+
   // Debounced save EVERYTHING to Database
   useEffect(() => {
-    const handler = setTimeout(async () => {
+    const handler = setTimeout(() => {
       // Don't save empty states over initial real DB states before API finishes pulling
       // if (members.length === 0 && isSyncing) return;
 
-      try {
-        await fetch(`${API_BASE}/api/state`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            members,
-            courts,
-            gameHistory,
-            paymentHistory,
-            sessionHistory,
-            rankMemory,
-            courtFeePerPerson,
-            shuttlePrice,
-            snacks,
-            sessionStartDate,
-            courtQueues
-          })
-        });
-      } catch (err) {
-        console.warn('Failed to save state to DB:', err);
-      }
+      postState({
+        members,
+        courts,
+        gameHistory,
+        paymentHistory,
+        sessionHistory,
+        rankMemory,
+        courtFeePerPerson,
+        shuttlePrice,
+        snacks,
+        sessionStartDate,
+        courtQueues
+      });
     }, 2000);
     return () => clearTimeout(handler);
   }, [members, courts, gameHistory, paymentHistory, sessionHistory, courtFeePerPerson, shuttlePrice, rankMemory, snacks, sessionStartDate, courtQueues]);

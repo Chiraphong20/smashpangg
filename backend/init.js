@@ -34,6 +34,15 @@ async function initDB() {
       )
     `);
 
+    // State version counter (กัน tab/เครื่องเก่า save ทับข้อมูลใหม่แบบเงียบๆ)
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS state_meta (
+        id INT PRIMARY KEY,
+        version BIGINT NOT NULL DEFAULT 0
+      )
+    `);
+    await pool.query(`INSERT IGNORE INTO state_meta (id, version) VALUES (1, 0)`);
+
     // Daily Sessions
     await pool.query(`
       CREATE TABLE IF NOT EXISTS sessions (
