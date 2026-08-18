@@ -279,10 +279,28 @@ export default function App() {
 
   const resetDay = async () => {
     if (!confirm('คุณแน่ใจหรือไม่ว่าต้องการเริ่มวันใหม่? (ล้างประวัติการตีและรีเซ็ตคอร์ด)')) return;
-    saveSession();
-    setSessionStartDate(null);
 
-    // Sync session to the DB
+    const archivedSession = saveSession();
+    const newSessionHistory = archivedSession ? [archivedSession, ...sessionHistory] : sessionHistory;
+
+    const resetMembers = members.map(m => ({
+      ...m,
+      gamesPlayed: 0,
+      balance: 0,
+      courtBalance: 0,
+      shuttleBalance: 0,
+      shuttleCount: 0,
+      snackBalance: 0,
+      snackHistory: [],
+      paidCourtFee: false,
+      status: 'resting' as const,
+      checkInTime: Date.now(),
+      totalCourt: 0,
+      totalShuttle: 0,
+      totalSnack: 0
+    }));
+
+    // Sync session to the DB (เก็บลง sessions/games/payments ให้ถาวร)
     setIsSyncing(true);
     try {
       await fetch(`${API_BASE}/api/sync`, {
@@ -301,26 +319,29 @@ export default function App() {
       setIsSyncing(false);
     }
 
+    setSessionStartDate(null);
     setGameHistory([]);
     setPaymentHistory([]);
     setCourts(INITIAL_COURTS);
-    setMembers(prev => prev.map(m => ({
-      ...m,
-      gamesPlayed: 0,
-      balance: 0,
-      courtBalance: 0,
-      shuttleBalance: 0,
-      shuttleCount: 0,
-      snackBalance: 0,
-      snackHistory: [],
-      paidCourtFee: false,
-      status: 'resting',
-      checkInTime: Date.now(),
-      totalCourt: 0,
-      totalShuttle: 0,
-      totalSnack: 0
-    })));
+    setMembers(resetMembers);
 
+    // เซฟค่าที่รีเซ็ตแล้วขึ้น DB "ทันที" แบบ await ในนี้เลย ไม่รอ debounce 2 วิ
+    // ของ effect ทั่วไป — เพราะถ้าผู้ใช้กด refresh เร็วกว่านั้น (เป็นเรื่องปกติมาก
+    // หลังกดปุ่ม "จบวัน" แล้วรีเฟรชดูผลทันที) ตัว reset จะไม่ทันถูกบันทึกขึ้น DB เลย
+    // ทำให้ข้อมูลเก่าค้างอยู่เหมือนไม่ได้กดจบวันไปเลย (บั๊กที่เจอจริง)
+    await postState({
+      members: resetMembers,
+      courts: INITIAL_COURTS,
+      gameHistory: [],
+      paymentHistory: [],
+      sessionHistory: newSessionHistory,
+      rankMemory,
+      courtFeePerPerson,
+      shuttlePrice,
+      snacks,
+      sessionStartDate: null,
+      courtQueues
+    });
   };
 
   const clearBoard = () => {
@@ -527,8 +548,8 @@ export default function App() {
     alert('สร้างข้อมูลจำลองของ "เมื่อวาน" เรียบร้อยแล้ว! \nตอนนี้คุณสามารถเลือกวันที่จากเมนูด้านบนเพื่อทดสอบปุ่ม "Sync Now" หรือดูข้อมูลย้อนหลังได้เลยครับ');
   };
 
-  const saveSession = () => {
-    if (gameHistory.length === 0 && paymentHistory.length === 0) return;
+  const saveSession = (): SessionRecord | null => {
+    if (gameHistory.length === 0 && paymentHistory.length === 0) return null;
     // ใช้ sessionStartDate แทน Date.now() เพื่อแก้ปัญหาเลยเที่ยงคืน
     const session: SessionRecord = {
       id: Math.random().toString(36).substr(2, 9),
@@ -538,6 +559,7 @@ export default function App() {
       membersSnapshot: [...members]
     };
     setSessionHistory(prev => [session, ...prev]);
+    return session;
   };
 
   const factoryReset = () => {
