@@ -557,7 +557,13 @@ app.post('/api/state', async (req, res) => {
     const [metaRows] = await conn.query('SELECT version FROM state_meta WHERE id = 1 FOR UPDATE');
     const currentVersion = metaRows[0]?.version ?? 0;
 
-    if (typeof _version === 'number' && _version !== currentVersion) {
+    // สำคัญ: ถ้า client ไม่ส่ง _version มาเลย (เช่นแท็บเก่าที่รันโค้ด frontend
+    // รุ่นก่อนมี version-check ค้างอยู่หลายวัน) ห้ามข้าม check ไปเฉยๆ — ให้ถือว่า
+    // เป็น client ที่เก่าที่สุดเท่าที่จะเป็นไปได้ (-1) ซึ่งจะไม่ตรงกับ currentVersion
+    // เกือบทุกกรณีแน่ๆ แล้วโดนปฏิเสธไป ไม่ใช่ปล่อยผ่านให้ทับข้อมูลแบบเงียบๆ เหมือนเดิม
+    const clientVersion = typeof _version === 'number' ? _version : -1;
+
+    if (clientVersion !== currentVersion) {
       await conn.rollback();
       return res.status(409).json({
         error: 'stale_write',
